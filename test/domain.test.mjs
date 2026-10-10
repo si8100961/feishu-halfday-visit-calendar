@@ -19,6 +19,7 @@ test('branch abbreviation, department alias, spaces and name', () => {
   const c = {name:'测试客户甲',branch:'张江科技支行',department:'综合管理部'};
   for (const term of ['张江综管','张江 综管','综管 张江','客户甲','张江科技支行']) assert.equal(matchesContact(c, term), true, term);
   assert.equal(matchesContact(c,'静安个金'),false);
+  assert.equal(matchesContact({...c,branch:'张江科技支行（虚构）'},'张江综管'),true);
   assert.equal(matchesContact({name:'测试客户乙',branch:'静安支行',department:'个人金融部'},'静安 个金'),true);
 });
 test('visit validation requires linked customer IDs and matching half-day', () => {

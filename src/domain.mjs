@@ -38,9 +38,13 @@ export function normalizeSearch(text) {
 }
 export function matchesContact(contact, query) {
   const tokens = query.trim().split(/\s+/).filter(Boolean).map(normalizeSearch);
-  const haystack = normalizeSearch(`${contact.branch}${contact.department}${contact.name}${contact.keywords || ''}`);
+  const suffix = `${contact.department}${contact.name}${contact.keywords || ''}`;
+  // Parenthetical branch notes should not break a combined branch + department query.
+  // Keep the full form searchable too. Search never assigns a contact automatically.
+  const variants = [contact.branch, String(contact.branch).replace(/[（(][^）)]*[）)]/g, '')]
+    .map(branch => normalizeSearch(branch + suffix));
   // Explicit branch/department/name search, not phonetic or typo guessing.
-  return tokens.every(token => haystack.includes(token));
+  return tokens.every(token => variants.some(haystack => haystack.includes(token)));
 }
 export function validateVisit(input, contacts) {
   const timestamp = timestampOf(input.date, input.time);
