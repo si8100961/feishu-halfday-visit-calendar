@@ -1,0 +1,10 @@
+/* Align all morning and afternoon cells, regardless of event count. */
+@media(min-width:701px){.day{display:grid;grid-template-rows:42px repeat(2,minmax(150px,1fr))}}
+@supports(grid-template-rows:subgrid){@media(min-width:701px){#calendar{grid-template-rows:42px minmax(150px,auto) minmax(150px,auto)}.day{grid-row:1/span 3;grid-template-rows:subgrid}}}
+:root[data-theme="dark"]{color-scheme:dark;background:#1c1f24;color:#e5e9f1}
+:root[data-theme="dark"] button,:root[data-theme="dark"] input,:root[data-theme="dark"] select,:root[data-theme="dark"] dialog{background:#252a32;color:#e5e9f1;border-color:#465061}
+:root[data-theme="dark"] h3,:root[data-theme="dark"] .slot.pm{background:#222730}
+:root[data-theme="dark"] .event,:root[data-theme="dark"] .today h3,:root[data-theme="dark"] .chip{background:#263a59}
+:root[data-theme="dark"] .event strong,:root[data-theme="dark"] .today h3,:root[data-theme="dark"] .chip{color:#9dc0ff}
+:root[data-theme="dark"] .primary{background:#2868f0;color:#fff}
+:root[data-theme="dark"] #notice,:root[data-theme="dark"] .period,:root[data-theme="dark"] .contact-option small,:root[data-theme="dark"] .slot-add,:root[data-theme="dark"] header p{color:#afbdd0}

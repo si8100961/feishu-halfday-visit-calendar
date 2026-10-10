@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>拜访日历</title>  <script type="module" crossorigin src="./assets/index-Sjv77wNq.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-jy4XRIbi.css">
+</head>
+<body>
+  <main id="app">
+    <header><div><h1>拜访日历</h1><p id="subtitle">上午 · 下午</p></div><button id="refresh">刷新</button></header>
+    <div id="notice" role="status" aria-live="polite">正在连接飞书…</div>
+    <nav aria-label="日历导航">
+      <div class="range"><button id="previous" aria-label="上一周">‹</button><strong id="range-label"></strong><button id="next" aria-label="下一周">›</button><button id="today">本周</button></div>
+      <div><label>选择日期 <input id="jump" type="date"></label><button id="new" class="primary" disabled>＋ 新增拜访</button></div>
+    </nav>
+    <section id="calendar" aria-label="每周上午下午拜访安排"></section>
+    <p id="undated" hidden></p>
+    <section id="setup" hidden><p>连接成功后，点击下方按钮将此日历加入仪表盘。不会创建新表、修改字段或更改分享权限。</p><button id="install" class="primary">保存组件配置</button></section>
+  </main>
+  <dialog id="editor" aria-labelledby="editor-title">
+    <form id="visit-form">
+      <div class="dialog-heading"><h2 id="editor-title">新增拜访计划</h2><button type="button" id="close" aria-label="关闭">×</button></div>
+      <label>拜访日期<input id="visit-date" type="date" required></label>
+      <div class="date-row"><label>时段<select id="period"><option value="am">上午</option><option value="pm">下午</option></select></label><label>具体时间<input id="visit-time" type="time" required></label></div>
+      <label>约见客户<input id="search" type="search" placeholder="搜索支行、部门或姓名，如：张江综管" autocomplete="off"></label>
+      <div id="chosen" aria-label="已选择客户"></div>
+      <div id="matches" role="group" aria-label="客户搜索结果"></div>
+      <p id="form-error" role="alert" hidden></p>
+      <footer><button type="button" id="delete" class="danger" hidden>删除计划</button><span></span><button type="button" id="cancel">取消</button><button id="save" class="primary" type="submit">保存</button></footer>
+    </form>
+  </dialog>
+</body>
+</html>
