@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { VisitRepository, readAll } from '../src/repository.mjs';
+import { VisitRepository, readAll, EXTRA_FIELDS } from '../src/repository.mjs';
 import { savedSource, dashboardConfig } from '../src/config.mjs';
 
 const FieldType = { DateTime: 5, DuplexLink: 21, SingleLink: 18, Checkbox: 7 };
@@ -179,4 +179,49 @@ test('serialized configuration discards data and unknown keys', async () => {
   const config = dashboardConfig({ ...f.repo.source, secret: 'not allowed', contacts: ['not allowed'] });
   assert.equal(JSON.stringify(config).includes('not allowed'), false);
   assert.deepEqual(savedSource(config), f.repo.source);
+});
+
+const pendingVisit = {timestamp:null,pendingDate:'2030-02-14',pendingPeriod:'pm',customerIds:[],temporaryContact:'演示采购团队',location:'演示会场'};
+function flexibleFixture() {
+  const f=fixture();
+  for (const [id,[name,type]] of Object.entries(EXTRA_FIELDS)) f.plan.fields.push({id,name,type});
+  return f;
+}
+test('missing optional fields preserves old schema and rejects flexible writes', async()=>{
+  const f=fixture(); const loaded=await f.repo.connect();
+  assert.equal(loaded.supportsFlexible,false);
+  await assert.rejects(f.repo.save(pendingVisit),/扩展字段/);
+  assert.equal(f.calls.length,0); assert.equal(f.plan.fields.length,2);
+});
+test('pending time and temporary contact roundtrip without creating contacts or an exact time',async()=>{
+  const f=flexibleFixture(); await f.repo.connect();
+  const saved=await f.repo.save(pendingVisit);
+  assert.deepEqual(saved,{id:'plan-1',...pendingVisit});
+  assert.equal(f.plan.records[0].fields.date,null);
+  assert.equal(f.people.records.length,3);
+  assert.equal((await f.repo.load()).plans[0].pendingPeriod,'pm');
+  await assert.rejects(f.repo.save(pendingVisit),/相同/);
+  const exact=await f.repo.save({...visit,temporaryContact:pendingVisit.temporaryContact,location:pendingVisit.location},saved);
+  assert.equal(f.plan.records[0].fields.pendingDateField,null);
+  assert.equal(f.plan.records[0].fields.pendingPeriodField,null);
+  assert.equal(exact.pendingDate,undefined);
+  const back=await f.repo.save(pendingVisit,exact);
+  assert.equal(back.timestamp,null);
+  await f.repo.remove(back); assert.equal(f.plan.records.length,0);
+});
+test('flexible configuration preserves identifiers and copied Base rediscovery excludes original IDs', async()=>{
+  const f=flexibleFixture(); await f.repo.connect(); await f.repo.install();
+  assert.deepEqual(savedSource(f.sdk.bitable.dashboard.config).extraFields,f.repo.extra);
+  const copy=structuredClone(f.sdk.bitable.dashboard.config);
+  copy.dataConditions[0].tableId='copied-plan';
+  assert.equal(savedSource(copy).extraFields,undefined);
+  f.plan.fields.find(x=>x.id==='temporaryContactField').type=2;
+  await assert.rejects(new VisitRepository(f.sdk).connect(),/扩展字段/);
+});
+test('a modified location prevents stale editing or deletion',async()=>{
+  const f=flexibleFixture(); await f.repo.connect(); const original=await f.repo.save(pendingVisit);
+  f.plan.records[0].fields.locationField=[{text:'新的演示地点'}];
+  await assert.rejects(f.repo.save({...pendingVisit,location:'另一地点'},original),/修改/);
+  await assert.rejects(f.repo.remove(original),/修改/);
+  assert.equal(f.calls.length,1);
 });

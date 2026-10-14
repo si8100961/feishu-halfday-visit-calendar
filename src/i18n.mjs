@@ -1,5 +1,12 @@
 // UI-only localization. Customer text, dates and form values are never translated.
 const entries = [
+  ['具体时间待定','Exact time to be confirmed','時刻未定'],['上午待定','Morning · time TBD','午前・時刻未定'],['下午待定','Afternoon · time TBD','午後・時刻未定'],
+  ['临时约见对象','Temporary meeting contact','臨時の訪問先'],['拜访地点','Meeting location','訪問場所'],['选填','Optional','任意'],
+  ['客户库没有时填写，不自动新建客户','Use if absent from contacts; no contact is created','顧客一覧にない場合に入力。顧客は作成しません'],
+  ['请选择约见客户，或填写临时约见对象。','Select a contact or enter a temporary meeting contact.','顧客を選択するか、臨時の訪問先を入力してください。'],
+  ['请选择上午或下午。','Choose morning or afternoon.','午前または午後を選択してください。'],
+  ['约见对象和地点分别不能超过 200 字。','Contact and location must each be at most 200 characters.','訪問先と場所はそれぞれ200文字以内です。'],
+  ['管理员添加扩展字段后，可使用时间待定、临时约见对象和地点。','An administrator must add the extension fields to enable flexible appointments.','管理者が拡張項目を追加すると、時刻未定・臨時訪問先・場所を利用できます。'],
   ['拜访日历','Visit calendar','訪問カレンダー'],['上午 · 下午','Morning · Afternoon','午前・午後'],
   ['上午','Morning','午前'],['下午','Afternoon','午後'],['刷新','Refresh','更新'],['本周','This week','今週'],
   ['选择日期','Choose date','日付を選択'],['＋ 新增拜访','＋ New visit','＋ 訪問を追加'],['＋ 添加','＋ Add','＋ 追加'],['＋ 安排拜访','＋ Plan visit','＋ 訪問を予定'],

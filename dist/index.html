@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>拜访日历</title>  <script type="module" crossorigin src="./assets/index-OYCSfQEQ.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-jy4XRIbi.css">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>拜访日历</title>  <script type="module" crossorigin src="./assets/index-BmvrqGmf.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-IB1pGGpW.css">
 </head>
 <body>
   <main id="app">
@@ -20,9 +20,15 @@
       <div class="dialog-heading"><h2 id="editor-title">新增拜访计划</h2><button type="button" id="close" aria-label="关闭">×</button></div>
       <label>拜访日期<input id="visit-date" type="date" required></label>
       <div class="date-row"><label>时段<select id="period"><option value="am">上午</option><option value="pm">下午</option></select></label><label>具体时间<input id="visit-time" type="time" required></label></div>
+      <label class="pending-toggle"><input id="time-pending" type="checkbox">具体时间待定</label>
       <label>约见客户<input id="search" type="search" placeholder="搜索支行、部门或姓名，如：张江综管" autocomplete="off"></label>
       <div id="chosen" aria-label="已选择客户"></div>
       <div id="matches" role="group" aria-label="客户搜索结果"></div>
+      <div id="flexible-fields" hidden>
+        <label>临时约见对象<input id="temporary-contact" type="text" maxlength="200" placeholder="客户库没有时填写，不自动新建客户"></label>
+        <label>拜访地点<input id="location" type="text" maxlength="200" placeholder="选填"></label>
+      </div>
+      <p id="flexible-unavailable" class="muted" hidden>管理员添加扩展字段后，可使用时间待定、临时约见对象和地点。</p>
       <p id="form-error" role="alert" hidden></p>
       <footer><button type="button" id="delete" class="danger" hidden>删除计划</button><span></span><button type="button" id="cancel">取消</button><button id="save" class="primary" type="submit">保存</button></footer>
     </form>

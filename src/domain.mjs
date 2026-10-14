@@ -47,13 +47,32 @@ export function matchesContact(contact, query) {
   return tokens.every(token => variants.some(haystack => haystack.includes(token)));
 }
 export function validateVisit(input, contacts) {
-  const timestamp = timestampOf(input.date, input.time);
-  if (halfDay(timestamp) !== input.period) throw new Error('具体时间与上午/下午不一致，请重新选择。');
-  const ids = [...new Set(input.customerIds)];
-  if (!ids.length) throw new Error('请至少选择一位约见客户。');
+  if (!['am', 'pm'].includes(input.period)) throw new Error('请选择上午或下午。');
+  // A half-day-only appointment has no exact timestamp. Midnight is used only
+  // to validate/store a separate date-only field, never as its meeting time.
+  const timestamp = input.timePending ? null : timestampOf(input.date, input.time);
+  if (input.timePending) timestampOf(input.date, '00:00');
+  else if (halfDay(timestamp) !== input.period) throw new Error('具体时间与上午/下午不一致，请重新选择。');
+  const ids = [...new Set(input.customerIds || [])];
+  const temporaryContact = String(input.temporaryContact || '').trim();
+  const location = String(input.location || '').trim();
+  if (!ids.length && !temporaryContact) throw new Error('请选择约见客户，或填写临时约见对象。');
+  if (temporaryContact.length > 200 || location.length > 200) throw new Error('约见对象和地点分别不能超过 200 字。');
   if (ids.some(id => !contacts.some(c => c.id === id))) throw new Error('部分客户已不在可选范围，请刷新客户资料后重新选择。');
-  return { timestamp, customerIds: ids };
+  return { timestamp, customerIds: ids,
+    ...(input.timePending ? { pendingDate: input.date, pendingPeriod: input.period } : {}),
+    ...(temporaryContact ? { temporaryContact } : {}), ...(location ? { location } : {}) };
+}
+export function planSchedule(plan) {
+  if (Number.isFinite(plan.timestamp)) return { date: dateKey(plan.timestamp), period: halfDay(plan.timestamp), label: timeKey(plan.timestamp), sort: plan.timestamp };
+  if (!plan.pendingDate || !['am', 'pm'].includes(plan.pendingPeriod)) return null;
+  try {
+    const day = timestampOf(plan.pendingDate, '00:00');
+    return { date: plan.pendingDate, period: plan.pendingPeriod, label: `${plan.pendingPeriod === 'am' ? '上午' : '下午'}待定`, sort: day + (plan.pendingPeriod === 'am' ? 12 : 24) * 3600000 };
+  } catch { return null; }
 }
 export function sameVisit(a, b) {
-  return a.timestamp === b.timestamp && [...a.customerIds].sort().join('|') === [...b.customerIds].sort().join('|');
+  return (a.timestamp ?? null) === (b.timestamp ?? null)
+    && ['pendingDate', 'pendingPeriod', 'temporaryContact', 'location'].every(key => (a[key] || '') === (b[key] || ''))
+    && [...a.customerIds].sort().join('|') === [...b.customerIds].sort().join('|');
 }

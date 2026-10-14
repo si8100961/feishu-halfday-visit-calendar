@@ -1,5 +1,12 @@
-import { plainText, linkedIds, sameVisit } from './domain.mjs';
+import { plainText, linkedIds, sameVisit, dateKey, timestampOf, planSchedule } from './domain.mjs';
 import { savedSource, dashboardConfig, oneNamed } from './config.mjs';
+
+export const EXTRA_FIELDS = {
+  pendingDateField: ['拜访日期（时间待定）', 5],
+  pendingPeriodField: ['拜访时段（时间待定）', 1],
+  temporaryContactField: ['临时约见对象', 1],
+  locationField: ['拜访地点', 1]
+};
 
 export async function readAll(table) {
   const rows = [], tokens = new Set();
@@ -49,6 +56,14 @@ export class VisitRepository {
     this.source.contactFieldNames=Object.fromEntries(['nameField','branchField','departmentField','testField'].map(key=>[key,contactFields.find(f=>f.id===this.source[key]).name]));
     if (contactFields.find(f => f.id === this.source.testField)?.type !== FieldType.Checkbox) throw new Error('测试记录隔离字段类型已变化，停止加载候选。');
     Object.assign(this, this.source);
+    this.extra = {};
+    for (const [key, [name, type]] of Object.entries(EXTRA_FIELDS)) {
+      const savedId = saved?.extraFields?.[key];
+      const matches = planFields.filter(f => savedId ? f.id === savedId : f.name === name);
+      if (matches.length > 1 || (matches.length && matches[0].type !== type) || (savedId && !matches.length)) throw new Error(`扩展字段「${name}」配置不正确，已停止读写。`);
+      if (matches.length) this.extra[key] = matches[0].id;
+    }
+    if (Object.keys(this.extra).length) this.source.extraFields = { ...this.extra };
     this.ready = true;
     try { return await this.load(); } catch (error) { this.ready = false; throw error; }
   }
@@ -57,7 +72,18 @@ export class VisitRepository {
     return this.bitable.base.getPermission({ entity: this.PermissionEntity.Record, type, param: { tableId: this.planTableId, ...(recordId ? { recordId } : {}) } });
   }
   parsePlan(row) {
-    return { id: row.recordId, timestamp: row.fields[this.dateField], customerIds: linkedIds(row.fields[this.linkField]) };
+    const plan = { id: row.recordId, timestamp: row.fields[this.dateField], customerIds: linkedIds(row.fields[this.linkField]) };
+    const pending = row.fields[this.extra.pendingDateField];
+    const period = plainText(row.fields[this.extra.pendingPeriodField]);
+    if (!Number.isFinite(plan.timestamp) && Number.isFinite(pending)) {
+      plan.timestamp = null; plan.pendingDate = dateKey(pending);
+      plan.pendingPeriod = period === '上午' ? 'am' : period === '下午' ? 'pm' : '';
+    }
+    for (const key of ['temporaryContact', 'location']) {
+      const value = plainText(row.fields[this.extra[`${key}Field`]]).trim();
+      if (value) plan[key] = value;
+    }
+    return plan;
   }
   async load() {
     if (!this.ready) throw new Error('数据源尚未验证，禁止读取。');
@@ -65,13 +91,16 @@ export class VisitRepository {
     this.contacts = people.filter(r => r.fields[this.testField] !== true && plainText(r.fields[this.nameField]).trim()).map(r => ({
       id: r.recordId, name: plainText(r.fields[this.nameField]), branch: plainText(r.fields[this.branchField]), department: plainText(r.fields[this.departmentField]), keywords: plainText(r.fields[this.keywordField])
     }));
-    return { contacts: this.contacts, plans: rows.map(row => this.parsePlan(row)), canAdd };
+    return { contacts: this.contacts, plans: rows.map(row => this.parsePlan(row)), canAdd,
+      supportsFlexible: Object.keys(this.extra).length === Object.keys(EXTRA_FIELDS).length };
   }
   async save(input, original) {
-    if (!Number.isFinite(input?.timestamp) || !Array.isArray(input.customerIds) || !input.customerIds.length) throw new Error('请先填写有效日期、时间和客户。');
+    if (!input || !planSchedule(input) || !Array.isArray(input.customerIds) || (!input.customerIds.length && !input.temporaryContact?.trim())) throw new Error('请先填写有效日期、时段和约见对象。');
+    if ([input.temporaryContact, input.location].some(value => value != null && (typeof value !== 'string' || value.length > 200))) throw new Error('约见对象或地点格式不正确。');
     if (!await this.permission(original ? this.OperationType.Editable : this.OperationType.Addable, original?.id)) throw new Error('当前飞书账号没有保存此拜访计划的权限。');
     // Refresh allowed people immediately before writing; never link by a name string.
     const fresh = await this.load();
+    if ((!Number.isFinite(input.timestamp) || input.temporaryContact || input.location) && !fresh.supportsFlexible) throw new Error('尚未配置时间待定和临时对象字段，未保存；请由管理员先添加扩展字段。');
     if (input.customerIds.some(id => !fresh.contacts.some(c => c.id === id))) throw new Error('客户资料已变化，请刷新后重新选择。');
     if (original) {
       const current = fresh.plans.find(p => p.id === original.id);
@@ -81,9 +110,14 @@ export class VisitRepository {
       throw new Error('已有相同客户和时间的计划，未重复创建。');
     }
     const cells = {
-      [this.dateField]: input.timestamp,
+      [this.dateField]: Number.isFinite(input.timestamp) ? input.timestamp : null,
       [this.linkField]: { recordIds: input.customerIds }
     };
+    if (fresh.supportsFlexible) {
+      cells[this.extra.pendingDateField] = Number.isFinite(input.timestamp) ? null : timestampOf(input.pendingDate, '00:00');
+      cells[this.extra.pendingPeriodField] = Number.isFinite(input.timestamp) ? null : [{ type: 'text', text: input.pendingPeriod === 'am' ? '上午' : '下午' }];
+      for (const key of ['temporaryContact', 'location']) cells[this.extra[`${key}Field`]] = input[key] ? [{ type: 'text', text: input[key] }] : null;
+    }
     let id = original?.id;
     try {
       if (original) {
