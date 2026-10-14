@@ -1,6 +1,5 @@
 import './style.css';
 import './layout-fix.css';
-import './flexible.css';
 import { dateKey, timeKey, halfDay, shiftDate, weekDates, matchesContact, validateVisit, planSchedule } from './domain.mjs';
 import { VisitRepository } from './repository.mjs';
 import { localizeUI } from './i18n.mjs';
@@ -16,7 +15,7 @@ function el(tag, text, cls) { const node = document.createElement(tag); if (text
 function notice(message, error = false) { $('notice').textContent = message; $('notice').className = error ? 'error' : ''; }
 function formError(message) { $('form-error').textContent = message; $('form-error').hidden = !message; }
 function contactLabel(contact) { return `${contact.branch || '支行未填写'} · ${contact.department || '部门未填写'} · ${contact.name}`; }
-function planLabel(plan) { return [plan.location, plan.customerIds.map(id => { const c = data.contacts.find(c => c.id === id); return c ? contactLabel(c) : '客户不可见或已不在可选范围'; }).join(' / '), plan.temporaryContact].filter(Boolean).join(' · ') || '未选择客户'; }
+function planLabel(plan) { return [plan.customerIds.map(id => { const c = data.contacts.find(c => c.id === id); return c ? contactLabel(c) : '客户不可见或已不在可选范围'; }).join(' / '), plan.temporaryContact].filter(Boolean).join(' · ') || '未选择客户'; }
 
 function render() {
   const dates = weekDates(anchor), today = dateKey(Date.now());
@@ -74,10 +73,8 @@ function openEditor(date, period, plan) {
   selected = new Set(plan?.customerIds || []);
   $('editor-title').textContent = plan ? '编辑拜访计划' : '新增拜访计划';
   $('visit-date').value = date; $('period').value = period;
-  $('time-pending').checked = Boolean(plan && !Number.isFinite(plan.timestamp));
-  $('visit-time').value = plan && Number.isFinite(plan.timestamp) ? timeKey(plan.timestamp) : plan ? '' : period === 'am' ? '09:00' : '14:00';
-  $('temporary-contact').value = plan?.temporaryContact || ''; $('location').value = plan?.location || '';
-  $('flexible-fields').hidden = !data.supportsFlexible; $('flexible-unavailable').hidden = data.supportsFlexible;
+  $('visit-time').value = plan && Number.isFinite(plan.timestamp) ? timeKey(plan.timestamp) : data.supportsFlexible ? '' : period === 'am' ? '09:00' : '14:00';
+  $('flexible-hint').hidden = !data.supportsFlexible;
   $('search').value = ''; $('delete').hidden = !plan; $('save').textContent = '保存'; formError(''); setBusy(false); renderContacts(); $('editor').showModal();
   $('search').focus();
 }
@@ -87,9 +84,7 @@ function setBusy(value) {
   for (const item of $('visit-form').querySelectorAll('input,select,button')) item.disabled = value;
   $('save').disabled = value || uncertain;
   $('delete').disabled = value || uncertain;
-  $('time-pending').disabled = value || !data.supportsFlexible;
-  $('visit-time').disabled = value || $('time-pending').checked;
-  $('visit-time').required = !$('time-pending').checked;
+  $('visit-time').required = !data.supportsFlexible;
   if (!value && refreshPending) { refreshPending = false; clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 250); }
 }
 async function refresh() {
@@ -102,7 +97,7 @@ async function refresh() {
 $('visit-form').addEventListener('submit', async event => {
   event.preventDefault(); if (busy || uncertain) return;
   let input;
-  try { input = validateVisit({ date: $('visit-date').value, time: $('visit-time').value, period: $('period').value, customerIds: [...selected], timePending: $('time-pending').checked, temporaryContact: $('temporary-contact').value, location: $('location').value }, data.contacts); }
+  try { input = validateVisit({ date: $('visit-date').value, time: $('visit-time').value, period: $('period').value, customerIds: [...selected], timePending: data.supportsFlexible && !$('visit-time').value, temporaryContact: original?.temporaryContact }, data.contacts); }
   catch (error) { formError(error.message); return; }
   ++loadVersion; setBusy(true); formError(''); $('save').textContent = '保存中…';
   try {
@@ -121,9 +116,8 @@ $('delete').addEventListener('click', async () => {
   finally { setBusy(false); }
 });
 $('search').addEventListener('input', renderContacts);
-$('time-pending').addEventListener('change', () => { if ($('time-pending').checked) $('visit-time').value = ''; setBusy(false); });
 $('visit-form').addEventListener('input', () => { deleteArmed = false; $('delete').textContent = '删除计划'; });
-$('period').addEventListener('change', () => { if ($('time-pending').checked) return; const hour = Number($('visit-time').value.slice(0, 2)); if (($('period').value === 'am') !== (hour < 12)) $('visit-time').value = $('period').value === 'am' ? '09:00' : '14:00'; });
+$('period').addEventListener('change', () => { if (!$('visit-time').value) return; const hour = Number($('visit-time').value.slice(0, 2)); if (($('period').value === 'am') !== (hour < 12)) $('visit-time').value = $('period').value === 'am' ? '09:00' : '14:00'; });
 $('visit-time').addEventListener('change', () => { if ($('visit-time').value) $('period').value = Number($('visit-time').value.slice(0, 2)) < 12 ? 'am' : 'pm'; });
 for (const id of ['close', 'cancel']) $(id).addEventListener('click', closeEditor);
 $('editor').addEventListener('cancel', event => { if (busy) event.preventDefault(); });

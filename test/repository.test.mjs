@@ -181,7 +181,7 @@ test('serialized configuration discards data and unknown keys', async () => {
   assert.deepEqual(savedSource(config), f.repo.source);
 });
 
-const pendingVisit = {timestamp:null,pendingDate:'2030-02-14',pendingPeriod:'pm',customerIds:[],temporaryContact:'演示采购团队',location:'演示会场'};
+const pendingVisit = {timestamp:null,pendingDate:'2030-02-14',pendingPeriod:'pm',customerIds:['person-a']};
 function flexibleFixture() {
   const f=fixture();
   for (const [id,[name,type]] of Object.entries(EXTRA_FIELDS)) f.plan.fields.push({id,name,type});
@@ -193,7 +193,7 @@ test('missing optional fields preserves old schema and rejects flexible writes',
   await assert.rejects(f.repo.save(pendingVisit),/扩展字段/);
   assert.equal(f.calls.length,0); assert.equal(f.plan.fields.length,2);
 });
-test('pending time and temporary contact roundtrip without creating contacts or an exact time',async()=>{
+test('pending time roundtrips without creating contacts or an exact time',async()=>{
   const f=flexibleFixture(); await f.repo.connect();
   const saved=await f.repo.save(pendingVisit);
   assert.deepEqual(saved,{id:'plan-1',...pendingVisit});
@@ -201,7 +201,7 @@ test('pending time and temporary contact roundtrip without creating contacts or 
   assert.equal(f.people.records.length,3);
   assert.equal((await f.repo.load()).plans[0].pendingPeriod,'pm');
   await assert.rejects(f.repo.save(pendingVisit),/相同/);
-  const exact=await f.repo.save({...visit,temporaryContact:pendingVisit.temporaryContact,location:pendingVisit.location},saved);
+  const exact=await f.repo.save(visit,saved);
   assert.equal(f.plan.records[0].fields.pendingDateField,null);
   assert.equal(f.plan.records[0].fields.pendingPeriodField,null);
   assert.equal(exact.pendingDate,undefined);
@@ -215,13 +215,24 @@ test('flexible configuration preserves identifiers and copied Base rediscovery e
   const copy=structuredClone(f.sdk.bitable.dashboard.config);
   copy.dataConditions[0].tableId='copied-plan';
   assert.equal(savedSource(copy).extraFields,undefined);
-  f.plan.fields.find(x=>x.id==='temporaryContactField').type=2;
+  f.plan.fields.find(x=>x.id==='pendingPeriodField').type=2;
   await assert.rejects(new VisitRepository(f.sdk).connect(),/扩展字段/);
 });
-test('a modified location prevents stale editing or deletion',async()=>{
+test('a modified period prevents stale editing or deletion',async()=>{
   const f=flexibleFixture(); await f.repo.connect(); const original=await f.repo.save(pendingVisit);
-  f.plan.records[0].fields.locationField=[{text:'新的演示地点'}];
-  await assert.rejects(f.repo.save({...pendingVisit,location:'另一地点'},original),/修改/);
+  f.plan.records[0].fields.pendingPeriodField=[{text:'上午'}];
+  await assert.rejects(f.repo.save({...pendingVisit,pendingPeriod:'am'},original),/修改/);
   await assert.rejects(f.repo.remove(original),/修改/);
   assert.equal(f.calls.length,1);
+});
+
+test('legacy text can be preserved but not created or changed through the calendar',async()=>{
+  const f=flexibleFixture(); f.plan.fields.push({id:'legacy',name:'临时约见对象',type:1});
+  f.plan.records.push({recordId:'legacy-visit',fields:{date:null,pendingDateField:Date.parse('2030-02-14T00:00:00+08:00'),pendingPeriodField:[{text:'下午'}],legacy:[{text:'已有演示对象'}]}});
+  const loaded=await f.repo.connect(); const original=loaded.plans[0];
+  const saved=await f.repo.save({...original,pendingPeriod:'am'},original);
+  assert.equal(saved.temporaryContact,'已有演示对象');
+  assert.equal(f.calls[0][1].legacy,undefined);
+  await assert.rejects(f.repo.save({...saved,temporaryContact:'新对象'},saved),/仅保留/);
+  await assert.rejects(f.repo.save({...saved}),/仅保留/);
 });

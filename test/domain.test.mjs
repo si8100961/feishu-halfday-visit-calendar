@@ -42,18 +42,18 @@ test('SDK field values: text segments, formula wrapper and link IDs', () => {
 });
 
 test('half-day-only appointment never invents an exact meeting timestamp', () => {
-  const value = validateVisit({date:'2030-02-14',period:'pm',timePending:true,time:'',customerIds:[],temporaryContact:'演示采购团队',location:'演示会场'}, []);
+  const value = validateVisit({date:'2030-02-14',period:'pm',timePending:true,time:'',customerIds:['demo']}, [{id:'demo'}]);
   assert.equal(value.timestamp, null);
   assert.equal(value.pendingDate, '2030-02-14');
   assert.equal(planSchedule(value).period, 'pm');
-  assert.equal(planSchedule(value).label, '下午待定');
+  assert.equal(planSchedule(value).label, '下午');
   assert.throws(()=>validateVisit({...value,date:'2030-02-30',period:'pm',timePending:true},[]));
   assert.throws(()=>validateVisit({date:'2030-02-14',period:'am',timePending:true,customerIds:[],temporaryContact:'  '},[]));
   assert.equal(planSchedule({timestamp:null,pendingDate:'2030-02-14',pendingPeriod:''}), null);
 });
 
-test('pending and exact appointments are distinct; temporary name/location changes are conflicts', () => {
-  const pending = {timestamp:null,pendingDate:'2030-02-14',pendingPeriod:'pm',customerIds:[],temporaryContact:'演示采购团队',location:'演示会场'};
+test('pending and exact appointments are distinct; legacy label changes are conflicts', () => {
+  const pending = {timestamp:null,pendingDate:'2030-02-14',pendingPeriod:'pm',customerIds:[],temporaryContact:'演示采购团队'};
   assert.equal(sameVisit(pending,{...pending}),true);
-  for (const change of [{pendingPeriod:'am'},{pendingDate:'2030-02-15'},{temporaryContact:'演示团队乙'},{location:'另一会场'},{timestamp:timestampOf('2030-02-14','14:00')}]) assert.equal(sameVisit(pending,{...pending,...change}),false);
+  for (const change of [{pendingPeriod:'am'},{pendingDate:'2030-02-15'},{temporaryContact:'演示团队乙'},{timestamp:timestampOf('2030-02-14','14:00')}]) assert.equal(sameVisit(pending,{...pending,...change}),false);
 });

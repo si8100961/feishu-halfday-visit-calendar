@@ -38,7 +38,7 @@ export function dashboardConfig(source) {
     planTableId:source.planTableId,contactTableId:source.contactTableId,
     ...Object.fromEntries(FIELD_KEYS.map(key=>[key,source[key]])),
     ...(source.keywordField ? {keywordField:source.keywordField}:{}),
-    ...(source.extraFields ? { extraFields: Object.fromEntries(['pendingDateField','pendingPeriodField','temporaryContactField','locationField'].filter(key=>typeof source.extraFields[key]==='string').map(key=>[key,source.extraFields[key]])) } : {}),
+    ...(source.extraFields ? { extraFields: Object.fromEntries(['pendingDateField','pendingPeriodField','temporaryContactField'].filter(key=>typeof source.extraFields[key]==='string').map(key=>[key,source.extraFields[key]])) } : {}),
     ...(source.contactFieldNames ? {contactFieldNames:Object.fromEntries(FIELD_KEYS.slice(2).map(key=>[key,source.contactFieldNames[key]]))}:{})
   } } };
   savedSource(config);

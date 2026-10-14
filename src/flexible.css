@@ -1,4 +1,0 @@
-#visit-form .pending-toggle{display:flex;align-items:center;gap:8px}
-#visit-form .pending-toggle>input{width:18px;min-height:18px;margin:0;flex:0 0 18px}
-#flexible-fields:not([hidden]){display:grid;gap:12px}
-#flexible-unavailable{margin:0;padding:0}
