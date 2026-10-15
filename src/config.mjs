@@ -2,6 +2,7 @@
 // No CRM identifiers, names of people, credentials or data snapshots in the bundle.
 export const CONFIG_VERSION = 4;
 export const FIELD_KEYS = ['dateField', 'linkField', 'nameField', 'branchField', 'departmentField', 'testField'];
+export const OPTIONAL_CONTACT_KEYS = ['organizationField', 'level1Field'];
 
 export function savedSource(config) {
   const value = config?.customConfig;
@@ -37,9 +38,10 @@ export function dashboardConfig(source) {
   ], customConfig: { version: CONFIG_VERSION, calendar: 'half-day', source: {
     planTableId:source.planTableId,contactTableId:source.contactTableId,
     ...Object.fromEntries(FIELD_KEYS.map(key=>[key,source[key]])),
+    ...Object.fromEntries(OPTIONAL_CONTACT_KEYS.filter(key=>typeof source[key]==='string'&&source[key].trim()).map(key=>[key,source[key]])),
     ...(source.keywordField ? {keywordField:source.keywordField}:{}),
     ...(source.extraFields ? { extraFields: Object.fromEntries(['pendingDateField','pendingPeriodField','temporaryContactField'].filter(key=>typeof source.extraFields[key]==='string').map(key=>[key,source.extraFields[key]])) } : {}),
-    ...(source.contactFieldNames ? {contactFieldNames:Object.fromEntries(FIELD_KEYS.slice(2).map(key=>[key,source.contactFieldNames[key]]))}:{})
+    ...(source.contactFieldNames ? {contactFieldNames:Object.fromEntries([...FIELD_KEYS.slice(2),...OPTIONAL_CONTACT_KEYS].filter(key=>typeof source.contactFieldNames[key]==='string').map(key=>[key,source.contactFieldNames[key]]))}:{})
   } } };
   savedSource(config);
   return config;

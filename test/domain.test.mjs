@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dateKey, timeKey, halfDay, timestampOf, weekDates, shiftDate, matchesContact, validateVisit, sameVisit, linkedIds, plainText, planSchedule } from '../src/domain.mjs';
+import { dateKey, timeKey, halfDay, timestampOf, weekDates, shiftDate, matchesContact, validateVisit, sameVisit, linkedIds, plainText, planSchedule, contactHierarchy, contactLabel } from '../src/domain.mjs';
 test('Shanghai timezone, midnight and noon boundaries', () => {
   const timestamp = timestampOf('2026-10-10', '00:00');
   assert.equal(new Date(timestamp).toISOString(), '2026-10-09T16:00:00.000Z');
@@ -21,6 +21,24 @@ test('branch abbreviation, department alias, spaces and name', () => {
   assert.equal(matchesContact(c,'静安个金'),false);
   assert.equal(matchesContact({...c,branch:'张江科技支行（虚构）'},'张江综管'),true);
   assert.equal(matchesContact({name:'测试客户乙',branch:'静安支行',department:'个人金融部'},'静安 个金'),true);
+});
+
+test('generic customer hierarchy omits empty levels and never requires a bank branch', () => {
+  const c={name:'演示联系人',organization:'示例电商',level1:'企业平台',level2:'',department:'大商超'};
+  assert.equal(contactHierarchy(c),'示例电商 · 企业平台 · 大商超');
+  assert.equal(contactLabel(c),'示例电商 · 企业平台 · 大商超 · 演示联系人');
+  for(const q of ['示例电商','企业平台','大商超','示例电商大商超','企业平台大商超','示例电商 企业平台 演示联系人'])assert.equal(matchesContact(c,q),true,q);
+  assert.equal(matchesContact(c,'其他机构'),false);
+  assert.equal(contactHierarchy({name:'演示联系人'}),'');
+  assert.equal(contactLabel({name:'演示联系人'}),'演示联系人');
+});
+
+test('full three-level bank path and legacy branch remain searchable and correctly ordered', () => {
+  const c={organization:'示例银行',level1:'示例分行',level2:'张江科技支行',department:'综合管理部',name:'演示客户'};
+  assert.equal(contactHierarchy(c),'示例银行 · 示例分行 · 张江科技支行 · 综合管理部');
+  for(const q of ['张江综管','示例银行 综管','示例分行 张江 演示客户'])assert.equal(matchesContact(c,q),true,q);
+  assert.equal(contactLabel({branch:'旧支行',department:'旧部门',name:'演示人'}),'旧支行 · 旧部门 · 演示人');
+  assert.equal(contactHierarchy({organization:'示例银行',level1:'示例省分行',level2:''}),'示例银行 · 示例省分行');
 });
 test('visit validation requires linked customer IDs and matching half-day', () => {
   const c=[{id:'person1'}];

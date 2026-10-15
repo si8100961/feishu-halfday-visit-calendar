@@ -40,18 +40,31 @@ export class VisitRepository {
     }
     this.contact = await bitable.base.getTableById(contactTableId);
     const contactFields = await this.contact.getFieldMetaList();
-    const fieldNamed = (key, name) => {
-      const field = saved?.[key] ? contactFields.find(f => f.id === saved[key]) : oneNamed(contactFields, saved?.contactFieldNames?.[key] || name);
-      if (!field) throw new Error(`客户字段「${name}」已删除，已停止读写。`);
-      return field.id;
+    const fieldNamed = (key, names, optional = false) => {
+      const aliases = Array.isArray(names) ? names : [names];
+      if (saved?.[key]) {
+        const field = contactFields.find(f => f.id === saved[key]);
+        if (!field) throw new Error(`客户字段「${aliases[0]}」已删除，已停止读写。`);
+        return field.id;
+      }
+      const savedName = saved?.contactFieldNames?.[key];
+      const named = savedName ? contactFields.filter(f => f.name === savedName) : [];
+      const matches = named.length ? named : contactFields.filter(f => aliases.includes(f.name));
+      if (!matches.length && optional) return undefined;
+      if (matches.length !== 1) throw new Error(`无法唯一确定客户字段「${aliases[0]}」，已停止读写。`);
+      return matches[0].id;
     };
     this.source = {
       planTableId, contactTableId, dateField: date.id, linkField: link.id,
-      nameField: fieldNamed('nameField', '姓名'), branchField: fieldNamed('branchField', '当前所属支行'),
-      departmentField: fieldNamed('departmentField', '当前所属部门'), testField: fieldNamed('testField', '测试记录'),
+      nameField: fieldNamed('nameField', '姓名'), branchField: fieldNamed('branchField', ['二级分类', '当前所属支行']),
+      departmentField: fieldNamed('departmentField', ['所属部门', '当前所属部门']), testField: fieldNamed('testField', '测试记录'),
       keywordField: saved?.keywordField || contactFields.find(f => f.name === '客户搜索关键词')?.id
     };
-    this.source.contactFieldNames=Object.fromEntries(['nameField','branchField','departmentField','testField'].map(key=>[key,contactFields.find(f=>f.id===this.source[key]).name]));
+    for (const [key, names] of [['organizationField',['客户机构','所属机构','当前所属机构']],['level1Field',['一级分类']]]) {
+      const id = fieldNamed(key, names, true);
+      if (id) this.source[key] = id;
+    }
+    this.source.contactFieldNames=Object.fromEntries(['nameField','organizationField','level1Field','branchField','departmentField','testField'].filter(key=>this.source[key]).map(key=>[key,contactFields.find(f=>f.id===this.source[key]).name]));
     if (contactFields.find(f => f.id === this.source.testField)?.type !== FieldType.Checkbox) throw new Error('测试记录隔离字段类型已变化，停止加载候选。');
     Object.assign(this, this.source);
     this.extra = {};
@@ -87,7 +100,7 @@ export class VisitRepository {
     if (!this.ready) throw new Error('数据源尚未验证，禁止读取。');
     const [people, rows, canAdd] = await Promise.all([readAll(this.contact), readAll(this.plan), this.permission(this.OperationType.Addable)]);
     this.contacts = people.filter(r => r.fields[this.testField] !== true && plainText(r.fields[this.nameField]).trim()).map(r => ({
-      id: r.recordId, name: plainText(r.fields[this.nameField]), branch: plainText(r.fields[this.branchField]), department: plainText(r.fields[this.departmentField]), keywords: plainText(r.fields[this.keywordField])
+      id: r.recordId, name: plainText(r.fields[this.nameField]), organization: plainText(r.fields[this.source.organizationField]), level1: plainText(r.fields[this.source.level1Field]), level2: plainText(r.fields[this.branchField]), branch: plainText(r.fields[this.branchField]), department: plainText(r.fields[this.departmentField]), keywords: plainText(r.fields[this.keywordField])
     }));
     return { contacts: this.contacts, plans: rows.map(row => this.parsePlan(row)), canAdd,
       supportsFlexible: Object.keys(EXTRA_FIELDS).every(key => this.extra[key]) };

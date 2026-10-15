@@ -34,7 +34,11 @@ For a half-day appointment, **拜访时间 stays empty**. The separate date-only
 
 Publishing source code alone does not upgrade a previously installed officially hosted plugin. Deploy the new build through Feishu's official update workflow before using this capability in production.
 
-The linked table contains **姓名**, **当前所属支行**, **当前所属部门** and checkbox **测试记录**. An optional **客户搜索关键词** field is supported. Contact rows marked as test records are excluded. Do not rename or remove these fields before the first configuration. Once configured, identifiers are retained. When copying the Base, the plan mapping uses Feishu's `dataConditions` and resolves the linked table within the copy. Invalid mappings stop writes.
+The linked table contains **姓名**, **二级分类**, **所属部门** and checkbox **测试记录**. Optional **客户机构**, **一级分类**, and **客户搜索关键词** fields are supported. Legacy **当前所属支行 / 当前所属部门** and institution field aliases remain compatible. Individual classification cells may be empty. Contact rows marked as test records are excluded. Once configured, field identifiers are retained. When copying the Base, the plan mapping uses Feishu's `dataConditions` and resolves the linked table within the copy. Invalid or ambiguous mappings stop writes.
+
+### Generic customer hierarchy (v0.2.1)
+
+Contact results, selected-contact chips, and calendar cards consistently show **客户机构 → 一级分类 → 二级分类 → 所属部门 → 姓名**. Empty levels are omitted; a non-bank customer does not need a branch and is not labeled as missing one. Existing saved widgets discover newly available institution/first-level fields without changing any customer data. Search includes the full hierarchy and preserves legacy combined branch/department queries.
 
 ## Usage
 
@@ -42,7 +46,7 @@ The linked table contains **姓名**, **当前所属支行**, **当前所属部�
 2. Make the component wide enough for seven columns. Below 700px it uses stacked days, with morning/afternoon side by side.
 3. Use previous/next week or the date picker to navigate.
 4. Click a morning/afternoon slot, choose the date and contacts, then save. With the optional support fields configured, leave the specific time empty to show only 上午 / 下午. Enter a time when it is known.
-5. Search supports branch abbreviations, department aliases and multiple space-separated keywords. It is not phonetic or typo-correcting search.
+5. Search supports organization names, both classification levels, branch abbreviations, department aliases and multiple space-separated keywords. It is not phonetic or typo-correcting search.
 6. Click an existing visit to edit; deletion requires a second confirmation. All calendar times use **Asia/Shanghai**.
 
 The primary interface supports Chinese, English and Japanese labels. Detailed schema diagnostics may retain original Chinese field names. Light/dark mode follows the host when its theme API is available.

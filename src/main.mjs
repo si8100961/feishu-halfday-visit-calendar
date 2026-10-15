@@ -1,6 +1,6 @@
 import './style.css';
 import './layout-fix.css';
-import { dateKey, timeKey, halfDay, shiftDate, weekDates, matchesContact, validateVisit, planSchedule } from './domain.mjs';
+import { dateKey, timeKey, halfDay, shiftDate, weekDates, matchesContact, validateVisit, planSchedule, contactHierarchy, contactLabel } from './domain.mjs';
 import { VisitRepository } from './repository.mjs';
 import { localizeUI } from './i18n.mjs';
 import { bitable, FieldType, PermissionEntity, OperationType, DashboardState } from '@lark-base-open/js-sdk';
@@ -14,7 +14,6 @@ let loadVersion = 0, refreshTimer, refreshPending = false;
 function el(tag, text, cls) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (cls) node.className = cls; return node; }
 function notice(message, error = false) { $('notice').textContent = message; $('notice').className = error ? 'error' : ''; }
 function formError(message) { $('form-error').textContent = message; $('form-error').hidden = !message; }
-function contactLabel(contact) { return `${contact.branch || '支行未填写'} · ${contact.department || '部门未填写'} · ${contact.name}`; }
 function planLabel(plan) { return [plan.customerIds.map(id => { const c = data.contacts.find(c => c.id === id); return c ? contactLabel(c) : '客户不可见或已不在可选范围'; }).join(' / '), plan.temporaryContact].filter(Boolean).join(' · ') || '未选择客户'; }
 
 function render() {
@@ -57,13 +56,15 @@ function renderContacts() {
   }
   const matches = data.contacts.filter(c => matchesContact(c, $('search').value));
   $('matches').replaceChildren();
-  if (!matches.length) $('matches').append(el('p', '没有匹配客户，请换用支行、部门或姓名；不会自动新建客户。', 'muted'));
+  if (!matches.length) $('matches').append(el('p', '没有匹配客户，请换用客户机构、分类、部门或姓名；不会自动新建客户。', 'muted'));
   matches.slice(0, 60).forEach(contact => {
     const label = el('label', undefined, 'contact-option'), checkbox = document.createElement('input');
     checkbox.type = 'checkbox'; checkbox.checked = selected.has(contact.id); checkbox.disabled = busy;
     checkbox.setAttribute('aria-label', contactLabel(contact));
     checkbox.addEventListener('change', () => { checkbox.checked ? selected.add(contact.id) : selected.delete(contact.id); renderContacts(); });
-    const text = el('span'); text.append(el('strong', contact.name), el('small', `${contact.branch || '支行未填写'} · ${contact.department || '部门未填写'}`)); label.append(checkbox, text); $('matches').append(label);
+    const text = el('span'); text.append(el('strong', contact.name));
+    const hierarchy = contactHierarchy(contact); if (hierarchy) text.append(el('small', hierarchy));
+    label.append(checkbox, text); $('matches').append(label);
   });
   if (matches.length > 60) $('matches').append(el('p', `共 ${matches.length} 位，输入关键词可缩小范围。`, 'muted'));
 }

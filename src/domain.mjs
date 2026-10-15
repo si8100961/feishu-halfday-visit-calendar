@@ -36,14 +36,22 @@ export function normalizeSearch(text) {
   return String(text).normalize('NFKC').toLowerCase().replace(/综合管理/g, '综管').replace(/个人金融/g, '个金')
     .replace(/科技支行|支行|分行/g, '').replace(/[\s·、\-_|]/g, '');
 }
+export function contactHierarchy(contact) {
+  return [contact.organization, contact.level1, contact.level2 ?? contact.branch, contact.department]
+    .map(value => plainText(value).trim()).filter(Boolean).join(' · ');
+}
+export function contactLabel(contact) {
+  return [contactHierarchy(contact), plainText(contact.name).trim()].filter(Boolean).join(' · ');
+}
 export function matchesContact(contact, query) {
   const tokens = query.trim().split(/\s+/).filter(Boolean).map(normalizeSearch);
-  const suffix = `${contact.department}${contact.name}${contact.keywords || ''}`;
+  const suffix = `${contact.department || ''}${contact.name || ''}${contact.keywords || ''}`;
   // Parenthetical branch notes should not break a combined branch + department query.
   // Keep the full form searchable too. Search never assigns a contact automatically.
-  const variants = [contact.branch, String(contact.branch).replace(/[（(][^）)]*[）)]/g, '')]
-    .map(branch => normalizeSearch(branch + suffix));
-  // Explicit branch/department/name search, not phonetic or typo guessing.
+  const levels = [contact.organization, contact.level1, contact.level2 ?? contact.branch].filter(Boolean);
+  const variants = [...levels, levels.join(''), ''].flatMap(level => [level, String(level).replace(/[（(][^）)]*[）)]/g, '')])
+    .map(level => normalizeSearch(level + suffix));
+  // Search explicit organizational levels and department/name, without guessing identities.
   return tokens.every(token => variants.some(haystack => haystack.includes(token)));
 }
 export function validateVisit(input, contacts) {

@@ -75,6 +75,57 @@ test('old preview configuration migrates without a business write', async () => 
   assert.equal(f.sdk.bitable.dashboard.config.customConfig.version, 4);
 });
 
+function useGenericHierarchy(f){
+  f.people.fields.find(x=>x.id==='branch').name='二级分类';
+  f.people.fields.find(x=>x.id==='department').name='所属部门';
+  f.people.fields.push({id:'organization',name:'客户机构',type:1},{id:'level1',name:'一级分类',type:1});
+  Object.assign(f.people.records[0].fields,{organization:'示例企业',level1:'全国业务',branch:'',department:'采购部'});
+}
+
+test('modern hierarchy is detected without business writes or required second-level values',async()=>{
+  const f=fixture();useGenericHierarchy(f);
+  const loaded=await f.repo.connect();
+  assert.equal(loaded.contacts[0].organization,'示例企业');
+  assert.equal(loaded.contacts[0].level1,'全国业务');
+  assert.equal(loaded.contacts[0].level2,'');
+  await f.repo.install();
+  assert.equal(savedSource(f.sdk.bitable.dashboard.config).organizationField,'organization');
+  assert.equal(savedSource(f.sdk.bitable.dashboard.config).level1Field,'level1');
+  assert.equal(f.calls.length,0);
+});
+
+test('already installed old configuration discovers new hierarchy without resetting saved links',async()=>{
+  const f=fixture();await f.repo.connect();await f.repo.install();
+  useGenericHierarchy(f);f.sdk.bitable.dashboard.state='View';
+  const repo=new VisitRepository(f.sdk),loaded=await repo.connect();
+  assert.equal(repo.linkField,'link');assert.equal(repo.branchField,'branch');
+  assert.equal(loaded.contacts[0].organization,'示例企业');
+  assert.equal(f.calls.length,0);
+});
+
+test('copied hierarchy config retains names only and resolves newly assigned IDs',async()=>{
+  const f=fixture();useGenericHierarchy(f);await f.repo.connect();await f.repo.install();
+  const config=structuredClone(f.sdk.bitable.dashboard.config);
+  config.dataConditions[0].tableId='copy-plan';config.dataConditions[0].groups=[{fieldId:'copy-date'},{fieldId:'copy-link'}];
+  assert.equal(savedSource(config).organizationField,undefined);
+  assert.equal(savedSource(config).contactFieldNames.organizationField,'客户机构');
+  f.plan.fields=[{id:'copy-date',name:'拜访时间',type:5},{id:'copy-link',name:'约见客户',type:21,property:{tableId:'copy-people'}}];
+  f.people.fields=f.people.fields.map(x=>({...x,id:'copy-'+x.id}));
+  f.people.records=f.people.records.map(r=>({...r,fields:Object.fromEntries(Object.entries(r.fields).map(([k,v])=>['copy-'+k,v]))}));
+  f.sdk.bitable.base.getTableById=async id=>{if(id==='copy-plan')return f.plan;if(id==='copy-people')return f.people;throw Error('original ID must not be accessed');};
+  f.sdk.bitable.dashboard.config=config;f.sdk.bitable.dashboard.state='View';
+  const repo=new VisitRepository(f.sdk),loaded=await repo.connect();
+  assert.equal(repo.source.organizationField,'copy-organization');assert.equal(loaded.contacts[0].organization,'示例企业');assert.equal(f.calls.length,0);
+});
+
+test('ambiguous organizational aliases and missing saved hierarchy stop instead of guessing',async()=>{
+  const f=fixture();useGenericHierarchy(f);f.people.fields.push({id:'other-org',name:'所属机构',type:1});
+  await assert.rejects(f.repo.connect(),/无法唯一/);assert.equal(f.calls.length,0);
+  const g=fixture();useGenericHierarchy(g);await g.repo.connect();await g.repo.install();g.sdk.bitable.dashboard.state='View';
+  g.people.fields=g.people.fields.filter(x=>x.id!=='organization');
+  await assert.rejects(new VisitRepository(g.sdk).connect(),/已删除/);assert.equal(g.calls.length,0);
+});
+
 test('copied Base mapping uses only remapped dataConditions and fails closed if damaged', () => {
   const source = {planTableId:'p',contactTableId:'c',dateField:'d',linkField:'l',nameField:'n',branchField:'b',departmentField:'dept',testField:'t'};
   const config=dashboardConfig(source);
