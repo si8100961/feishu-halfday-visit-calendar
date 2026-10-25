@@ -1,5 +1,9 @@
 // UI-only localization. Customer text, dates and form values are never translated.
 const entries = [
+  ['小时','Hour','時'],['分钟','Minute','分'],['清空','Clear','クリア'],
+  ['请选择完整的小时和分钟。','Select both hour and minute.','時と分の両方を選択してください。'],
+  ['分钟请选择 00、15、30 或 45。','Choose 00, 15, 30 or 45 minutes.','分は 00・15・30・45 から選択してください。'],
+  ['保留原有分钟；重新选择后使用 00、15、30、45。','Original minutes retained; new choices are 00, 15, 30 and 45.','元の分を保持します。変更時は 00・15・30・45 から選択します。'],
   ['具体时间可不填；不填时仅显示上午或下午。','Time is optional; leave blank to show morning or afternoon only.','時刻は任意です。未入力の場合は午前・午後のみ表示します。'],
   ['请选择约见客户，或填写临时约见对象。','Select a contact.','顧客を選択してください。'],
   ['请选择上午或下午。','Choose morning or afternoon.','午前または午後を選択してください。'],

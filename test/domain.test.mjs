@@ -59,6 +59,19 @@ test('SDK field values: text segments, formula wrapper and link IDs', () => {
   assert.deepEqual(linkedIds(null),[]);
 });
 
+test('SDK single-select labels preserve plain text and formula-wrapper behavior', () => {
+  // js-sdk 1.0.2 IOpenSingleSelect is { id, text }, not an option metadata object.
+  const option = { id: 'option-demo-bank', text: '示例银行' };
+  assert.equal(plainText(option), '示例银行');
+  assert.equal(plainText({ value: option }), '示例银行');
+  assert.equal(plainText([{ id: 'option-demo-branch', text: '示例分行' }]), '示例分行');
+  assert.equal(plainText('示例银行'), '示例银行');
+  assert.equal(plainText([{ type: 'text', text: '示例银行' }]), '示例银行');
+  assert.equal(plainText(null), '');
+  assert.equal(plainText({ id: 'empty-option', text: '' }), '');
+  assert.equal(plainText(0), '0');
+});
+
 test('half-day-only appointment never invents an exact meeting timestamp', () => {
   const value = validateVisit({date:'2030-02-14',period:'pm',timePending:true,time:'',customerIds:['demo']}, [{id:'demo'}]);
   assert.equal(value.timestamp, null);

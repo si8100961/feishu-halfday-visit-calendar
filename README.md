@@ -2,6 +2,15 @@
 
 Feishu Base dashboard widget. A seven-day calendar with morning and afternoon slots, linked contacts, date navigation and an in-widget editor. Saving returns to the calendar, not the native record/comment panel.
 
+## v0.2.2 time selection
+
+- Separate hour and minute selectors. Minute choices are `00`, `15`, `30`, `45` only.
+- Exact time remains optional when half-day support fields are configured. Clear returns to a morning/afternoon-only appointment.
+- Existing non-quarter-hour times remain unchanged when opening and saving. A hidden, disabled display option preserves the original minute; new minute choices remain the four values above.
+- Choosing an hour on an empty exact time starts at `00` minutes. Incomplete hour/minute input cannot be saved as a half-day appointment accidentally.
+- This release does not change table schemas, permissions, customer matching or the existing save/conflict rules.
+- Deploy as an isolated widget version where an existing installation must remain frozen; do not republish a shared widget in place across frozen installations.
+
 ## Data and privacy
 
 - Uses the official `@lark-base-open/js-sdk` in the currently opened Base.

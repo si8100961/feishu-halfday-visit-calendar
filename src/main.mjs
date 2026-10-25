@@ -1,11 +1,14 @@
 import './style.css';
 import './layout-fix.css';
+import './time-picker.css';
 import { dateKey, timeKey, halfDay, shiftDate, weekDates, matchesContact, validateVisit, planSchedule, contactHierarchy, contactLabel } from './domain.mjs';
 import { VisitRepository } from './repository.mjs';
 import { localizeUI } from './i18n.mjs';
+import { createTimePicker } from './time-picker.mjs';
 import { bitable, FieldType, PermissionEntity, OperationType, DashboardState } from '@lark-base-open/js-sdk';
 
 const $ = id => document.getElementById(id);
+const timePicker = createTimePicker($('time-picker'), $('period'));
 const repository = new VisitRepository({ bitable, FieldType, PermissionEntity, OperationType, DashboardState });
 let data = { contacts: [], plans: [], canAdd: false };
 let anchor = dateKey(Date.now()), original = null, selected = new Set(), busy = false, connected = false, uncertain = false, deleteArmed = false;
@@ -74,7 +77,7 @@ function openEditor(date, period, plan) {
   selected = new Set(plan?.customerIds || []);
   $('editor-title').textContent = plan ? '编辑拜访计划' : '新增拜访计划';
   $('visit-date').value = date; $('period').value = period;
-  $('visit-time').value = plan && Number.isFinite(plan.timestamp) ? timeKey(plan.timestamp) : data.supportsFlexible ? '' : period === 'am' ? '09:00' : '14:00';
+  timePicker.set(plan && Number.isFinite(plan.timestamp) ? timeKey(plan.timestamp) : data.supportsFlexible ? '' : period === 'am' ? '09:00' : '14:00');
   $('flexible-hint').hidden = !data.supportsFlexible;
   $('search').value = ''; $('delete').hidden = !plan; $('save').textContent = '保存'; formError(''); setBusy(false); renderContacts(); $('editor').showModal();
   $('search').focus();
@@ -85,7 +88,7 @@ function setBusy(value) {
   for (const item of $('visit-form').querySelectorAll('input,select,button')) item.disabled = value;
   $('save').disabled = value || uncertain;
   $('delete').disabled = value || uncertain;
-  $('visit-time').required = !data.supportsFlexible;
+  timePicker.required(!data.supportsFlexible);
   if (!value && refreshPending) { refreshPending = false; clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 250); }
 }
 async function refresh() {
@@ -98,7 +101,11 @@ async function refresh() {
 $('visit-form').addEventListener('submit', async event => {
   event.preventDefault(); if (busy || uncertain) return;
   let input;
-  try { input = validateVisit({ date: $('visit-date').value, time: $('visit-time').value, period: $('period').value, customerIds: [...selected], timePending: data.supportsFlexible && !$('visit-time').value, temporaryContact: original?.temporaryContact }, data.contacts); }
+  try {
+    const time = timePicker.value;
+    input = validateVisit({ date: $('visit-date').value, time, period: $('period').value, customerIds: [...selected], timePending: data.supportsFlexible && !time, temporaryContact: original?.temporaryContact }, data.contacts);
+    if (Number.isFinite(original?.timestamp) && $('visit-date').value === dateKey(original.timestamp) && time === timeKey(original.timestamp)) input.timestamp = original.timestamp;
+  }
   catch (error) { formError(error.message); return; }
   ++loadVersion; setBusy(true); formError(''); $('save').textContent = '保存中…';
   try {
@@ -118,8 +125,6 @@ $('delete').addEventListener('click', async () => {
 });
 $('search').addEventListener('input', renderContacts);
 $('visit-form').addEventListener('input', () => { deleteArmed = false; $('delete').textContent = '删除计划'; });
-$('period').addEventListener('change', () => { if (!$('visit-time').value) return; const hour = Number($('visit-time').value.slice(0, 2)); if (($('period').value === 'am') !== (hour < 12)) $('visit-time').value = $('period').value === 'am' ? '09:00' : '14:00'; });
-$('visit-time').addEventListener('change', () => { if ($('visit-time').value) $('period').value = Number($('visit-time').value.slice(0, 2)) < 12 ? 'am' : 'pm'; });
 for (const id of ['close', 'cancel']) $(id).addEventListener('click', closeEditor);
 $('editor').addEventListener('cancel', event => { if (busy) event.preventDefault(); });
 $('previous').addEventListener('click', () => { anchor = shiftDate(anchor, -7); render(); });

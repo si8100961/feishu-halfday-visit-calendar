@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { VisitRepository, readAll, EXTRA_FIELDS } from '../src/repository.mjs';
 import { savedSource, dashboardConfig } from '../src/config.mjs';
+import { contactHierarchy, matchesContact } from '../src/domain.mjs';
 
 const FieldType = { DateTime: 5, DuplexLink: 21, SingleLink: 18, Checkbox: 7 };
 const OperationType = { Addable: 'add', Editable: 'edit', Deletable: 'delete' };
@@ -92,6 +93,41 @@ test('modern hierarchy is detected without business writes or required second-le
   assert.equal(savedSource(f.sdk.bitable.dashboard.config).organizationField,'organization');
   assert.equal(savedSource(f.sdk.bitable.dashboard.config).level1Field,'level1');
   assert.equal(f.calls.length,0);
+});
+
+test('three hierarchy fields can become SDK single-select without losing labels or linked IDs', async () => {
+  const f = fixture(); useGenericHierarchy(f);
+  Object.assign(f.people.records[0].fields, { organization: '示例银行', level1: '示例分行', branch: '张江科技支行', department: '综合管理部' });
+  const before = (await f.repo.connect()).contacts;
+  await f.repo.install();
+  const configBefore = structuredClone(f.sdk.bitable.dashboard.config);
+  const tableBefore = structuredClone(f.people.records);
+  for (const id of ['organization', 'level1', 'branch']) {
+    f.people.fields.find(field => field.id === id).type = 3;
+    f.people.records[0].fields[id] = { id: `option-${id}`, text: f.people.records[0].fields[id] };
+  }
+  f.sdk.bitable.dashboard.state = 'View';
+  const repo = new VisitRepository(f.sdk);
+  const loaded = await repo.connect();
+  assert.deepEqual(loaded.contacts, before);
+  assert.equal(contactHierarchy(loaded.contacts[0]), '示例银行 · 示例分行 · 张江科技支行 · 综合管理部');
+  for (const query of ['示例银行', '示例分行', '张江综管', '示例银行 示例分行 模拟客户甲']) assert.equal(matchesContact(loaded.contacts[0], query), true, query);
+  assert.deepEqual(f.sdk.bitable.dashboard.config, configBefore);
+  const saved = await repo.save(visit);
+  assert.deepEqual(saved.customerIds, ['person-a']);
+  assert.deepEqual(Object.keys(f.calls[0][1]).sort(), ['date', 'link']);
+  assert.deepEqual(f.people.records[0].fields.organization, { id: 'option-organization', text: tableBefore[0].fields.organization });
+});
+
+test('single-select hierarchy still permits missing optional levels', async () => {
+  const f = fixture(); useGenericHierarchy(f);
+  for (const id of ['organization', 'level1', 'branch']) f.people.fields.find(field => field.id === id).type = 3;
+  Object.assign(f.people.records[0].fields, { organization: { id: 'option-demo', text: '示例电商' }, level1: { id: 'option-platform', text: '企业平台' }, branch: null });
+  const loaded = await f.repo.connect();
+  assert.equal(contactHierarchy(loaded.contacts[0]), '示例电商 · 企业平台 · 采购部');
+  assert.equal(matchesContact(loaded.contacts[0], '示例电商采购部'), true);
+  assert.equal(loaded.contacts[0].level2, '');
+  assert.equal(f.calls.length, 0);
 });
 
 test('already installed old configuration discovers new hierarchy without resetting saved links',async()=>{

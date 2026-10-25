@@ -1,0 +1,11 @@
+.date-row { grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); align-items: start; }
+.date-row > label { padding-top: 19px; }
+.time-heading { display: flex; justify-content: space-between; align-items: center; min-height: 25px; }
+#clear-time { min-height: 0; padding: 2px 0 2px 8px; border: 0; background: transparent; color: #245bdb; font-size: 12px; }
+.time-parts { display: grid; grid-template-columns: minmax(0, 1fr) 8px minmax(0, 1fr); gap: 6px; align-items: end; }
+.time-parts label { min-width: 0; color: #64748b; font-size: 12px; }
+#visit-form .time-parts select { margin-top: 4px; font-size: 14px; color: #172b4d; }
+.time-colon { align-self: end; padding-bottom: 10px; text-align: center; }
+#legacy-time-hint { margin: 6px 0 0; font-size: 12px; }
+:root[data-theme="dark"] #clear-time { color: #93b4ff; }
+:root[data-theme="dark"] #visit-form .time-parts select { color: #e7edf7; }
