@@ -20,6 +20,20 @@ export async function readAll(table) {
   } while (true);
 }
 
+// Read the same linked-record labels the host displays, not a second set of
+// abbreviation rules. IDs remain the only source of relationship identity.
+export async function readDisplayValues(field) {
+  const values = new Map(), tokens = new Set(); let pageToken;
+  do {
+    const page = await field.getFieldValueListByPage({ pageSize: 200, stringValue: true, ...(pageToken === undefined ? {} : { pageToken }) });
+    if (!Array.isArray(page.fieldValues)) throw new Error('关联客户显示值读取不完整。');
+    for (const cell of page.fieldValues) if (typeof cell.value === 'string') values.set(cell.recordId, cell.value.trim());
+    if (!page.hasMore) return values;
+    if (page.pageToken === undefined || tokens.has(page.pageToken)) throw new Error('关联客户显示值分页异常。');
+    pageToken = page.pageToken; tokens.add(pageToken);
+  } while (true);
+}
+
 export class VisitRepository {
   constructor(sdk) { Object.assign(this, sdk); }
   async connect() {
@@ -60,11 +74,16 @@ export class VisitRepository {
       departmentField: fieldNamed('departmentField', ['所属部门', '当前所属部门']), testField: fieldNamed('testField', '测试记录'),
       keywordField: saved?.keywordField || contactFields.find(f => f.name === '客户搜索关键词')?.id
     };
-    for (const [key, names] of [['organizationField',['客户机构','所属机构','当前所属机构']],['level1Field',['一级分类']]]) {
+    for (const [key, names] of [['organizationField',['客户机构','所属机构','当前所属机构']],['level1Field',['一级分类']],['associationField',['关联客户']],['displayField',['机构显示名（系统）']]]) {
       const id = fieldNamed(key, names, true);
       if (id) this.source[key] = id;
     }
-    this.source.contactFieldNames=Object.fromEntries(['nameField','organizationField','level1Field','branchField','departmentField','testField'].filter(key=>this.source[key]).map(key=>[key,contactFields.find(f=>f.id===this.source[key]).name]));
+    this.source.contactFieldNames=Object.fromEntries(['nameField','organizationField','level1Field','branchField','departmentField','testField','associationField','displayField'].filter(key=>this.source[key]).map(key=>[key,contactFields.find(f=>f.id===this.source[key]).name]));
+    this.associationDisplay = null;
+    const association = contactFields.find(f => f.id === this.source.associationField);
+    if (association && [FieldType.DuplexLink, FieldType.SingleLink].includes(association.type)) {
+      this.associationDisplay = await this.contact.getFieldById(association.id);
+    }
     if (contactFields.find(f => f.id === this.source.testField)?.type !== FieldType.Checkbox) throw new Error('测试记录隔离字段类型已变化，停止加载候选。');
     Object.assign(this, this.source);
     this.extra = {};
@@ -98,9 +117,11 @@ export class VisitRepository {
   }
   async load() {
     if (!this.ready) throw new Error('数据源尚未验证，禁止读取。');
-    const [people, rows, canAdd] = await Promise.all([readAll(this.contact), readAll(this.plan), this.permission(this.OperationType.Addable)]);
+    const [people, rows, canAdd, displayValues] = await Promise.all([readAll(this.contact), readAll(this.plan), this.permission(this.OperationType.Addable),
+      this.associationDisplay ? readDisplayValues(this.associationDisplay).catch(() => new Map()) : new Map()]);
     this.contacts = people.filter(r => r.fields[this.testField] !== true && plainText(r.fields[this.nameField]).trim()).map(r => ({
-      id: r.recordId, name: plainText(r.fields[this.nameField]), organization: plainText(r.fields[this.source.organizationField]), level1: plainText(r.fields[this.source.level1Field]), level2: plainText(r.fields[this.branchField]), branch: plainText(r.fields[this.branchField]), department: plainText(r.fields[this.departmentField]), keywords: plainText(r.fields[this.keywordField])
+      id: r.recordId, name: plainText(r.fields[this.nameField]), organization: plainText(r.fields[this.source.organizationField]), level1: plainText(r.fields[this.source.level1Field]), level2: plainText(r.fields[this.branchField]), branch: plainText(r.fields[this.branchField]), department: plainText(r.fields[this.departmentField]), keywords: plainText(r.fields[this.keywordField]),
+      shortHierarchy: (linkedIds(r.fields[this.source.associationField]).length ? displayValues.get(r.recordId) : '') || plainText(r.fields[this.source.displayField]).trim()
     }));
     return { contacts: this.contacts, plans: rows.map(row => this.parsePlan(row)), canAdd,
       supportsFlexible: Object.keys(EXTRA_FIELDS).every(key => this.extra[key]) };

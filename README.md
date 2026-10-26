@@ -2,6 +2,14 @@
 
 Feishu Base dashboard widget. A seven-day calendar with morning and afternoon slots, linked contacts, date navigation and an in-widget editor. Saving returns to the calendar, not the native record/comment panel.
 
+## v0.2.3 linked display labels and midnight navigation
+
+- Cards, selected contacts and search results reuse the existing `关联客户` display label, followed by the contact name. Optional `机构显示名（系统）` is the fallback, then the original full hierarchy. No duplicate abbreviation rules are maintained here.
+- Full hierarchy stays available in search and hover titles. Record IDs, relationship identity and original customer fields are unchanged.
+- The default/current-week view follows Shanghai midnight, checks every 30 seconds and on returning to the page. Explicit previous/next-week or date navigation stays where the user chose; the current-week button resumes following today.
+- Day rollover is deferred while the editor is open or a write is pending. Closing the editor checks the date again, without altering any unsaved form fields.
+- Existing saved configurations discover optional display fields in their own linked table; copied-Base remapping continues to discard original identifiers.
+
 ## v0.2.2 time selection
 
 - Separate hour and minute selectors. Minute choices are `00`, `15`, `30`, `45` only.
@@ -47,7 +55,7 @@ The linked table contains **姓名**, **二级分类**, **所属部门** and che
 
 ### Generic customer hierarchy (v0.2.1)
 
-Contact results, selected-contact chips, and calendar cards consistently show **客户机构 → 一级分类 → 二级分类 → 所属部门 → 姓名**. Empty levels are omitted; a non-bank customer does not need a branch and is not labeled as missing one. Existing saved widgets discover newly available institution/first-level fields without changing any customer data. Search includes the full hierarchy and preserves legacy combined branch/department queries.
+The full hierarchy is **客户机构 → 一级分类 → 二级分类 → 所属部门 → 姓名**. Empty levels are omitted; a non-bank customer does not need a branch and is not labeled as missing one. From v0.2.3, existing linked display labels take priority in compact views, while the full hierarchy remains available in search and hover titles. Existing saved widgets discover newly available optional fields without changing customer data. Search preserves legacy combined branch/department queries.
 
 ## Usage
 

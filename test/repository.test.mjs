@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { VisitRepository, readAll, EXTRA_FIELDS } from '../src/repository.mjs';
 import { savedSource, dashboardConfig } from '../src/config.mjs';
-import { contactHierarchy, matchesContact } from '../src/domain.mjs';
+import { contactHierarchy, contactLabel, matchesContact } from '../src/domain.mjs';
 
 const FieldType = { DateTime: 5, DuplexLink: 21, SingleLink: 18, Checkbox: 7 };
 const OperationType = { Addable: 'add', Editable: 'edit', Deletable: 'delete' };
@@ -82,6 +82,84 @@ function useGenericHierarchy(f){
   f.people.fields.push({id:'organization',name:'客户机构',type:1},{id:'level1',name:'一级分类',type:1});
   Object.assign(f.people.records[0].fields,{organization:'示例企业',level1:'全国业务',branch:'',department:'采购部'});
 }
+
+test('association display wins over formula; missing relation uses existing formula; IDs remain unchanged',async()=>{
+  const f=fixture();useGenericHierarchy(f);
+  f.people.fields.push({id:'association',name:'关联客户',type:21,property:{tableId:'existing-index'}},{id:'display',name:'机构显示名（系统）',type:20});
+  Object.assign(f.people.records[0].fields,{association:{recordIds:['institution-a']},display:[{type:'text',text:'公式简称'}]});
+  f.people.getFieldById=async id=>{assert.equal(id,'association');return{getFieldValueListByPage:async()=>({fieldValues:[{recordId:'person-a',value:'现有关联简称'}],hasMore:false})};};
+  assert.equal((await f.repo.connect()).contacts[0].shortHierarchy,'现有关联简称');
+  await f.repo.install();assert.equal(savedSource(f.sdk.bitable.dashboard.config).associationField,'association');
+  assert.equal(savedSource(f.sdk.bitable.dashboard.config).displayField,'display');
+  f.people.records[0].fields.association={recordIds:[]};
+  assert.equal((await f.repo.load()).contacts[0].shortHierarchy,'公式简称');
+  const saved=await f.repo.save(visit);assert.deepEqual(saved.customerIds,['person-a']);
+  assert.deepEqual(Object.keys(f.calls[0][1]).sort(),['date','link']);
+});
+
+test('identical names and association labels keep separate contact IDs and independent visits',async()=>{
+  const f=fixture();useGenericHierarchy(f);
+  f.people.fields.push({id:'association',name:'关联客户',type:21,property:{tableId:'existing-index'}});
+  Object.assign(f.people.records[0].fields,{name:'同名联系人',association:{recordIds:['institution-a']}});
+  f.people.records.push({recordId:'person-b',fields:{...structuredClone(f.people.records[0].fields),association:{recordIds:['institution-b']}}});
+  f.people.getFieldById=async id=>{assert.equal(id,'association');return{getFieldValueListByPage:async()=>({fieldValues:[
+    {recordId:'person-a',value:'相同简称'}, {recordId:'person-b',value:'相同简称'}
+  ],hasMore:false})};};
+  const peopleBefore=structuredClone(f.people.records);
+  const loaded=await f.repo.connect();
+  assert.deepEqual(loaded.contacts.map(c=>c.id),['person-a','person-b']);
+  assert.equal(contactLabel(loaded.contacts[0]),contactLabel(loaded.contacts[1]));
+  assert.notEqual(loaded.contacts[0].id,loaded.contacts[1].id);
+  const first=await f.repo.save({...visit,customerIds:['person-a']});
+  const second=await f.repo.save({...visit,customerIds:['person-b']});
+  assert.notEqual(first.id,second.id);
+  assert.deepEqual(first.customerIds,['person-a']);
+  assert.deepEqual(second.customerIds,['person-b']);
+  assert.deepEqual(f.calls.map(([,fields])=>fields.link.recordIds),[['person-a'],['person-b']]);
+  assert.deepEqual(f.calls.map(([,fields])=>Object.keys(fields).sort()),[['date','link'],['date','link']]);
+  assert.deepEqual(f.people.records,peopleBefore);
+});
+
+test('copied association-display configuration resolves only copied table, field and contact IDs',async()=>{
+  const f=fixture();useGenericHierarchy(f);
+  f.people.fields.push({id:'association',name:'关联客户',type:21,property:{tableId:'existing-index'}},{id:'display',name:'机构显示名（系统）',type:20});
+  Object.assign(f.people.records[0].fields,{association:{recordIds:['institution-a']},display:'原公式简称'});
+  f.people.getFieldById=async id=>{assert.equal(id,'association');return{getFieldValueListByPage:async()=>({fieldValues:[{recordId:'person-a',value:'原关联简称'}],hasMore:false})};};
+  await f.repo.connect();await f.repo.install();
+  const config=structuredClone(f.sdk.bitable.dashboard.config);
+  config.dataConditions[0].tableId='copy-plan';
+  config.dataConditions[0].groups=[{fieldId:'copy-date'},{fieldId:'copy-link'}];
+  const remapped=savedSource(config);
+  for(const key of ['contactTableId','associationField','displayField']) assert.equal(remapped[key],undefined);
+  assert.equal(remapped.contactFieldNames.associationField,'关联客户');
+  assert.equal(remapped.contactFieldNames.displayField,'机构显示名（系统）');
+  f.plan.fields=[{id:'copy-date',name:'拜访时间',type:5},{id:'copy-link',name:'约见客户',type:21,property:{tableId:'copy-people'}}];
+  f.people.fields=f.people.fields.map(field=>({...field,id:'copy-'+field.id,...(field.id==='association'?{property:{tableId:'copy-index'}}:{})}));
+  f.people.records=f.people.records.map(row=>({recordId:'copy-'+row.recordId,fields:Object.fromEntries(Object.entries(row.fields).map(([key,value])=>['copy-'+key,key==='association'?{recordIds:['copy-institution-a']}:value]))}));
+  const tableReads=[],fieldReads=[];
+  f.sdk.bitable.base.getTableById=async id=>{
+    tableReads.push(id);
+    assert.ok(['copy-plan','copy-people'].includes(id),'original table ID must not be accessed');
+    return id==='copy-plan'?f.plan:f.people;
+  };
+  f.sdk.bitable.base.getPermission=async options=>{assert.equal(options.param.tableId,'copy-plan');return true;};
+  f.people.getFieldById=async id=>{
+    fieldReads.push(id);assert.equal(id,'copy-association');
+    return{getFieldValueListByPage:async()=>({fieldValues:[{recordId:'copy-person-a',value:'副本关联简称'}],hasMore:false})};
+  };
+  f.sdk.bitable.dashboard.config=config;f.sdk.bitable.dashboard.state='View';
+  const repo=new VisitRepository(f.sdk),loaded=await repo.connect();
+  assert.deepEqual(tableReads,['copy-plan','copy-people']);
+  assert.deepEqual(fieldReads,['copy-association']);
+  assert.equal(repo.source.associationField,'copy-association');
+  assert.equal(repo.source.displayField,'copy-display');
+  assert.equal(loaded.contacts[0].id,'copy-person-a');
+  assert.equal(loaded.contacts[0].shortHierarchy,'副本关联简称');
+  assert.equal(f.calls.length,0);
+  const saved=await repo.save({...visit,customerIds:['copy-person-a']});
+  assert.deepEqual(saved.customerIds,['copy-person-a']);
+  assert.deepEqual(f.calls,[['add',{'copy-date':visit.timestamp,'copy-link':{recordIds:['copy-person-a']}}]]);
+});
 
 test('modern hierarchy is detected without business writes or required second-level values',async()=>{
   const f=fixture();useGenericHierarchy(f);

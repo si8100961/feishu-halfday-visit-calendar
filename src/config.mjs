@@ -2,7 +2,7 @@
 // No CRM identifiers, names of people, credentials or data snapshots in the bundle.
 export const CONFIG_VERSION = 4;
 export const FIELD_KEYS = ['dateField', 'linkField', 'nameField', 'branchField', 'departmentField', 'testField'];
-export const OPTIONAL_CONTACT_KEYS = ['organizationField', 'level1Field'];
+export const OPTIONAL_CONTACT_KEYS = ['organizationField', 'level1Field', 'associationField', 'displayField'];
 
 export function savedSource(config) {
   const value = config?.customConfig;

@@ -1,7 +1,8 @@
 import './style.css';
 import './layout-fix.css';
 import './time-picker.css';
-import { dateKey, timeKey, halfDay, shiftDate, weekDates, matchesContact, validateVisit, planSchedule, contactHierarchy, contactLabel } from './domain.mjs';
+import { dateKey, timeKey, weekDates, matchesContact, validateVisit, planSchedule, contactDisplayHierarchy, contactLabel, fullContactLabel } from './domain.mjs';
+import { CalendarNavigation } from './calendar-navigation.mjs';
 import { VisitRepository } from './repository.mjs';
 import { localizeUI } from './i18n.mjs';
 import { createTimePicker } from './time-picker.mjs';
@@ -11,7 +12,8 @@ const $ = id => document.getElementById(id);
 const timePicker = createTimePicker($('time-picker'), $('period'));
 const repository = new VisitRepository({ bitable, FieldType, PermissionEntity, OperationType, DashboardState });
 let data = { contacts: [], plans: [], canAdd: false };
-let anchor = dateKey(Date.now()), original = null, selected = new Set(), busy = false, connected = false, uncertain = false, deleteArmed = false;
+const navigation = new CalendarNavigation();
+let original = null, selected = new Set(), busy = false, connected = false, uncertain = false, deleteArmed = false;
 let loadVersion = 0, refreshTimer, refreshPending = false;
 
 function el(tag, text, cls) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (cls) node.className = cls; return node; }
@@ -20,9 +22,10 @@ function formError(message) { $('form-error').textContent = message; $('form-err
 function planLabel(plan) { return [plan.customerIds.map(id => { const c = data.contacts.find(c => c.id === id); return c ? contactLabel(c) : '客户不可见或已不在可选范围'; }).join(' / '), plan.temporaryContact].filter(Boolean).join(' · ') || '未选择客户'; }
 
 function render() {
-  const dates = weekDates(anchor), today = dateKey(Date.now());
+  navigation.sync();
+  const dates = weekDates(navigation.anchor), today = navigation.today;
   $('range-label').textContent = `${dates[0]} — ${dates[6].slice(5)}`;
-  $('jump').value = anchor;
+  $('jump').value = navigation.anchor;
   $('new').disabled = !connected || !data.canAdd;
   const calendar = $('calendar'); calendar.replaceChildren();
   dates.forEach((date, index) => {
@@ -34,6 +37,7 @@ function render() {
       const rows = data.plans.filter(p => { const s = planSchedule(p); return s?.date === date && s.period === period; }).sort((a, b) => planSchedule(a).sort - planSchedule(b).sort);
       for (const plan of rows) {
         const button = el('button', undefined, 'event');
+        button.title = plan.customerIds.map(id => data.contacts.find(c => c.id === id)).filter(Boolean).map(fullContactLabel).join(' / ');
         button.append(el('strong', planSchedule(plan).label), el('span', planLabel(plan)));
         button.addEventListener('click', () => openEditor(date, period, plan)); slot.append(button);
       }
@@ -54,6 +58,7 @@ function renderContacts() {
   for (const id of selected) {
     const contact = data.contacts.find(c => c.id === id);
     const chip = el('button', `${contact ? contactLabel(contact) : '不可用客户'} ×`, 'chip'); chip.type = 'button';
+    if (contact) chip.title = fullContactLabel(contact);
     chip.disabled = busy; chip.setAttribute('aria-label', `移除${contact?.name || '不可用客户'}`);
     chip.addEventListener('click', () => { selected.delete(id); renderContacts(); }); $('chosen').append(chip);
   }
@@ -66,7 +71,8 @@ function renderContacts() {
     checkbox.setAttribute('aria-label', contactLabel(contact));
     checkbox.addEventListener('change', () => { checkbox.checked ? selected.add(contact.id) : selected.delete(contact.id); renderContacts(); });
     const text = el('span'); text.append(el('strong', contact.name));
-    const hierarchy = contactHierarchy(contact); if (hierarchy) text.append(el('small', hierarchy));
+    label.title = fullContactLabel(contact);
+    const hierarchy = contactDisplayHierarchy(contact); if (hierarchy) text.append(el('small', hierarchy));
     label.append(checkbox, text); $('matches').append(label);
   });
   if (matches.length > 60) $('matches').append(el('p', `共 ${matches.length} 位，输入关键词可缩小范围。`, 'muted'));
@@ -82,7 +88,11 @@ function openEditor(date, period, plan) {
   $('search').value = ''; $('delete').hidden = !plan; $('save').textContent = '保存'; formError(''); setBusy(false); renderContacts(); $('editor').showModal();
   $('search').focus();
 }
-function closeEditor() { if (!busy) { $('editor').close(); original = null; } }
+function closeEditor() { if (!busy) { $('editor').close(); original = null; checkCalendarDay(); } }
+function checkCalendarDay() {
+  if (busy || $('editor').open) return;
+  if (navigation.sync()) render();
+}
 function setBusy(value) {
   busy = value;
   for (const item of $('visit-form').querySelectorAll('input,select,button')) item.disabled = value;
@@ -111,7 +121,7 @@ $('visit-form').addEventListener('submit', async event => {
   try {
     const saved = await repository.save(input, original);
     data.plans = data.plans.filter(p => p.id !== saved.id); data.plans.push(saved);
-    anchor = planSchedule(saved).date; $('editor').close(); original = null; render(); notice('已保存，已返回拜访日历。');
+    navigation.saved(planSchedule(saved).date); $('editor').close(); original = null; render(); notice('已保存，已返回拜访日历。');
   } catch (error) { uncertain = error.uncertain === true; formError(error.message); }
   finally { setBusy(false); $('save').textContent = uncertain ? '请先核对保存结果' : '保存'; }
 });
@@ -127,11 +137,16 @@ $('search').addEventListener('input', renderContacts);
 $('visit-form').addEventListener('input', () => { deleteArmed = false; $('delete').textContent = '删除计划'; });
 for (const id of ['close', 'cancel']) $(id).addEventListener('click', closeEditor);
 $('editor').addEventListener('cancel', event => { if (busy) event.preventDefault(); });
-$('previous').addEventListener('click', () => { anchor = shiftDate(anchor, -7); render(); });
-$('next').addEventListener('click', () => { anchor = shiftDate(anchor, 7); render(); });
-$('today').addEventListener('click', () => { anchor = dateKey(Date.now()); render(); });
-$('jump').addEventListener('change', () => { if ($('jump').value) { anchor = $('jump').value; render(); } });
-$('new').addEventListener('click', () => openEditor(anchor, 'am'));
+$('editor').addEventListener('close', checkCalendarDay);
+$('previous').addEventListener('click', () => { navigation.shift(-7); render(); });
+$('next').addEventListener('click', () => { navigation.shift(7); render(); });
+$('today').addEventListener('click', () => { navigation.current(); render(); });
+$('jump').addEventListener('change', () => { if ($('jump').value) { navigation.move($('jump').value); render(); } });
+$('new').addEventListener('click', () => { checkCalendarDay(); openEditor(navigation.anchor, 'am'); });
+setInterval(checkCalendarDay, 30000);
+window.addEventListener('focus', checkCalendarDay);
+window.addEventListener('pageshow', checkCalendarDay);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkCalendarDay(); });
 $('refresh').addEventListener('click', refresh);
 $('install').addEventListener('click', async () => {
   $('install').disabled = true;

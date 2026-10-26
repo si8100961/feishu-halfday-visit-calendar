@@ -40,8 +40,15 @@ export function contactHierarchy(contact) {
   return [contact.organization, contact.level1, contact.level2 ?? contact.branch, contact.department]
     .map(value => plainText(value).trim()).filter(Boolean).join(' · ');
 }
-export function contactLabel(contact) {
+export function fullContactLabel(contact) {
   return [contactHierarchy(contact), plainText(contact.name).trim()].filter(Boolean).join(' · ');
+}
+export function contactDisplayHierarchy(contact) {
+  return plainText(contact.shortHierarchy).trim() || contactHierarchy(contact);
+}
+export function contactLabel(contact) {
+  if (!plainText(contact.shortHierarchy).trim()) return fullContactLabel(contact);
+  return [contactDisplayHierarchy(contact), plainText(contact.name).trim()].filter(Boolean).join('·');
 }
 export function matchesContact(contact, query) {
   const tokens = query.trim().split(/\s+/).filter(Boolean).map(normalizeSearch);
@@ -49,7 +56,7 @@ export function matchesContact(contact, query) {
   // Parenthetical branch notes should not break a combined branch + department query.
   // Keep the full form searchable too. Search never assigns a contact automatically.
   const levels = [contact.organization, contact.level1, contact.level2 ?? contact.branch].filter(Boolean);
-  const variants = [...levels, levels.join(''), ''].flatMap(level => [level, String(level).replace(/[（(][^）)]*[）)]/g, '')])
+  const variants = [...levels, levels.join(''), contactDisplayHierarchy(contact), ''].flatMap(level => [level, String(level).replace(/[（(][^）)]*[）)]/g, '')])
     .map(level => normalizeSearch(level + suffix));
   // Search explicit organizational levels and department/name, without guessing identities.
   return tokens.every(token => variants.some(haystack => haystack.includes(token)));
