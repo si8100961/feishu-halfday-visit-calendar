@@ -2,6 +2,12 @@
 
 Feishu Base dashboard widget. A seven-day calendar with morning and afternoon slots, linked contacts, date navigation and an in-widget editor. Saving returns to the calendar, not the native record/comment panel.
 
+## v0.2.4 Sunday planning default
+
+- Monday through Saturday default to the current week. Starting Sunday 00:00 in Shanghai, the default view shows the coming Monday through Sunday; the real date and stored visit times stay unchanged.
+- The Saturday-to-Sunday check also works on page return. Monday keeps the same displayed week instead of skipping ahead again.
+- Manual navigation remains where selected. The explicit **本周 / This week** button still opens the actual current week, so Sunday appointments remain accessible. Saving within the suggested week retains automatic following; saving elsewhere shows the chosen appointment's week.
+
 ## v0.2.3 linked display labels and midnight navigation
 
 - Cards, selected contacts and search results reuse the existing `关联客户` display label, followed by the contact name. Optional `机构显示名（系统）` is the fallback, then the original full hierarchy. No duplicate abbreviation rules are maintained here.
