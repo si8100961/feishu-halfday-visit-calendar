@@ -4,6 +4,7 @@ import './time-picker.css';
 import { dateKey, timeKey, weekDates, matchesContact, validateVisit, planSchedule, contactDisplayHierarchy, contactLabel, fullContactLabel } from './domain.mjs';
 import { CalendarNavigation } from './calendar-navigation.mjs';
 import { VisitRepository } from './repository.mjs';
+import { CALENDAR_VERSION, PERMISSION_WARNING, readStage, connectionStatus, loadFailure } from './availability.mjs';
 import { localizeUI } from './i18n.mjs';
 import { createTimePicker } from './time-picker.mjs';
 import { bitable, FieldType, PermissionEntity, OperationType, DashboardState } from '@lark-base-open/js-sdk';
@@ -14,10 +15,11 @@ const repository = new VisitRepository({ bitable, FieldType, PermissionEntity, O
 let data = { contacts: [], plans: [], canAdd: false };
 const navigation = new CalendarNavigation();
 let original = null, selected = new Set(), busy = false, connected = false, uncertain = false, deleteArmed = false;
-let loadVersion = 0, refreshTimer, refreshPending = false;
+let loadVersion = 0, refreshTimer, refreshPending = false, starting = false, subscribed = false;
 
 function el(tag, text, cls) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (cls) node.className = cls; return node; }
-function notice(message, error = false) { $('notice').textContent = message; $('notice').className = error ? 'error' : ''; }
+function notice(message, error = false) { $('notice').textContent = `${message} · v${CALENDAR_VERSION}`; $('notice').className = error ? 'error' : ''; }
+function connectedNotice() { const status = connectionStatus(data); notice(status.message, status.error); }
 function formError(message) { $('form-error').textContent = message; $('form-error').hidden = !message; }
 function planLabel(plan) { return [plan.customerIds.map(id => { const c = data.contacts.find(c => c.id === id); return c ? contactLabel(c) : '客户不可见或已不在可选范围'; }).join(' / '), plan.temporaryContact].filter(Boolean).join(' · ') || '未选择客户'; }
 
@@ -79,6 +81,8 @@ function renderContacts() {
 }
 function openEditor(date, period, plan) {
   if (!connected || busy) return;
+  if (data.writePermissionUnknown || repository.writePermissionUnknown) { notice(PERMISSION_WARNING, true); return; }
+  if (!plan && !data.canAdd) return;
   original = plan ? { ...plan, customerIds: [...plan.customerIds] } : null; uncertain = false; deleteArmed = false; $('delete').textContent = '删除计划';
   selected = new Set(plan?.customerIds || []);
   $('editor-title').textContent = plan ? '编辑拜访计划' : '新增拜访计划';
@@ -96,17 +100,18 @@ function checkCalendarDay() {
 function setBusy(value) {
   busy = value;
   for (const item of $('visit-form').querySelectorAll('input,select,button')) item.disabled = value;
-  $('save').disabled = value || uncertain;
-  $('delete').disabled = value || uncertain;
+  $('save').disabled = value || uncertain || repository.writePermissionUnknown;
+  $('delete').disabled = value || uncertain || repository.writePermissionUnknown;
   timePicker.required(!data.supportsFlexible);
   if (!value && refreshPending) { refreshPending = false; clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 250); }
 }
 async function refresh() {
-  if (!connected) return;
+  if (!connected) return start();
   if (busy) { refreshPending = true; return; }
   const version = ++loadVersion;
-  try { const next = await repository.load(); if (version !== loadVersion) return; data = next; render(); notice('已同步拜访计划 · 上海时间'); }
-  catch { notice('暂时无法刷新飞书数据，当前显示可能不是最新。请稍后点刷新。', true); }
+  try { const next = await repository.load(); if (version !== loadVersion) return; data = next; render(); connectedNotice(); }
+  catch (error) { if (version !== loadVersion) return; data.canAdd = false; data.writePermissionUnknown = true; render(); notice(loadFailure(error, true), true); }
+  finally { if ($('editor').open && !busy) setBusy(false); }
 }
 $('visit-form').addEventListener('submit', async event => {
   event.preventDefault(); if (busy || uncertain) return;
@@ -155,24 +160,36 @@ $('install').addEventListener('click', async () => {
 });
 render();
 async function start() {
+  if (starting) return;
+  starting = true;
   try {
-    try { localizeUI(await bitable.bridge.getLanguage()); } catch { /* Chinese is the default. */ }
-    try {
-      const theme = await bitable.dashboard.getTheme();
-      document.documentElement.dataset.theme = theme.theme === 'DARK' ? 'dark' : 'light';
-      bitable.dashboard.onThemeChange(event => { document.documentElement.dataset.theme = event.data.theme === 'DARK' ? 'dark' : 'light'; });
-    } catch { /* Theme support differs across Feishu host versions. */ }
-    data = await repository.connect(); connected = true; render(); notice(data.canAdd ? '已连接现有拜访计划 · 上海时间' : '已连接；当前账号仅可查看，不能新增计划。');
+    notice('正在连接飞书…');
+    data = await repository.connect(); connected = true; render(); connectedNotice();
     $('setup').hidden = !repository.isConfig();
-    repository.subscribe(() => { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 250); });
-    bitable.dashboard.onDataChange(() => { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 250); });
-    bitable.dashboard.onConfigChange(() => { if (!repository.isConfig()) window.location.reload(); });
-    // Host lifecycle signal is not a business-data write or a success assertion.
-    await repository.rendered().catch(() => {});
-  } catch (error) { notice(`尚未连接成功：${error.message}。请从飞书自定义插件入口打开；当前不能保存。`, true); }
+    if (!subscribed) {
+      subscribed = true;
+      // Optional host event support must not erase successfully loaded data.
+      for (const subscribe of [
+        () => repository.subscribe(() => { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 250); }),
+        () => bitable.dashboard.onDataChange(() => { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 250); }),
+        () => bitable.dashboard.onConfigChange(() => { if (!repository.isConfig()) window.location.reload(); })
+      ]) { Promise.resolve().then(subscribe).catch(() => { /* Manual refresh remains available. */ }); }
+    }
+  } catch (error) { connected = false; data.canAdd = false; render(); notice(loadFailure(error), true); }
+  finally {
+    starting = false;
+    // Report completion of the visible success/error UI, not business success.
+    readStage('LC-RENDERED', () => repository.rendered(), 2000).catch(() => {});
+  }
 }
 if (window.parent === window) notice('未连接飞书：这是待接入的日历组件，不能保存或加载真实资料。请在飞书仪表盘中打开。', true);
 else {
+  // These optional appearance reads cannot block source/permission loading.
+  readStage('LC-LANGUAGE', () => bitable.bridge.getLanguage(), 2000).then(localizeUI).catch(() => {});
+  readStage('LC-THEME', () => bitable.dashboard.getTheme(), 2000).then(theme => {
+    document.documentElement.dataset.theme = theme.theme === 'DARK' ? 'dark' : 'light';
+    bitable.dashboard.onThemeChange(event => { document.documentElement.dataset.theme = event.data.theme === 'DARK' ? 'dark' : 'light'; });
+  }).catch(() => {});
   const timer = setTimeout(() => { if (!connected) notice('等待飞书授权通道响应，尚未连接成功，当前不能保存。', true); }, 15000);
   start().finally(() => clearTimeout(timer));
 }

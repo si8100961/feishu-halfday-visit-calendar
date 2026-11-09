@@ -2,6 +2,14 @@
 
 Feishu Base dashboard widget. A seven-day calendar with morning and afternoon slots, linked contacts, date navigation and an in-widget editor. Saving returns to the calendar, not the native record/comment panel.
 
+## v0.2.5 permission-error isolation
+
+- A failed, invalid or timed-out record-add permission check no longer discards successfully read calendar data. It produces a visible `LC-PERMISSION` warning and disables all writes until a successful refresh confirms permission checks are available again.
+- Explicit `false` remains a normal denial, not a grant or an error. Each save/delete still checks its own record permission; no role, sharing scope or data access is expanded.
+- Source/read failures remain failures, not empty successful calendars. Safe stage codes and the version are displayed without raw SDK error payloads. Refresh can reconnect after an initial failure.
+- Language, theme and event-listener support cannot block the primary calendar load. The host render signal follows either success or the visible error state; it is not proof that member access is fixed.
+- No backend, telemetry, customer-data upload, automatic business write or automatic write retry is added. Layout, date rules, customer labels and the existing four-minute choices are unchanged. Actual member validation is still required after official deployment.
+
 ## v0.2.4 Sunday planning default
 
 - Monday through Saturday default to the current week. Starting Sunday 00:00 in Shanghai, the default view shows the coming Monday through Sunday; the real date and stored visit times stay unchanged.

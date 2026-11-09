@@ -51,6 +51,86 @@ function fixture() {
   return { sdk, plan, people, calls, tables, handlers, repo: new VisitRepository(sdk) };
 }
 
+test('permission failure preserves readable plans and blocks every write until refresh recovers', async () => {
+  const f = fixture();
+  f.plan.records.push({ recordId: 'existing', fields: { date: visit.timestamp, link: { recordIds: visit.customerIds } } });
+  f.sdk.bitable.base.getPermission = async () => { throw new Error('unavailable host permission API'); };
+  const result = await f.repo.connect();
+  assert.equal(result.contacts.length, 1); assert.equal(result.plans.length, 1);
+  assert.equal(result.canAdd, false); assert.equal(result.writePermissionUnknown, true);
+  const original = result.plans[0];
+  await assert.rejects(f.repo.save({ ...visit, timestamp: visit.timestamp + 60000 }), /LC-PERMISSION/);
+  await assert.rejects(f.repo.save({ ...visit, timestamp: visit.timestamp + 60000 }, original), /LC-PERMISSION/);
+  await assert.rejects(f.repo.remove(original), /LC-PERMISSION/);
+  assert.equal(f.calls.length, 0);
+  f.sdk.bitable.base.getPermission = async () => true;
+  // A new grant does not bypass the explicit recovery refresh.
+  await assert.rejects(f.repo.remove(original), /LC-PERMISSION/);
+  const recovered = await f.repo.load();
+  assert.equal(recovered.writePermissionUnknown, false);
+  await f.repo.save({ ...visit, timestamp: visit.timestamp + 60000 }, original);
+  assert.equal(f.calls.length, 1);
+});
+
+test('permission timeout cannot stall the calendar or grant access on a late response', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(); let finish;
+  f.sdk.bitable.base.getPermission = () => new Promise(resolve => { finish = resolve; });
+  const pending = f.repo.connect();
+  // Allow the asynchronous metadata reads to reach the permission check.
+  for (let i = 0; i < 100 && !finish; i++) await Promise.resolve();
+  assert.equal(typeof finish, 'function');
+  t.mock.timers.tick(4000);
+  const result = await pending;
+  assert.equal(result.contacts.length, 1); assert.equal(result.canAdd, false);
+  assert.equal(result.writePermissionUnknown, true);
+  finish(true); await Promise.resolve();
+  assert.equal(f.repo.writePermissionUnknown, true);
+  await assert.rejects(f.repo.save(visit), /LC-PERMISSION/);
+  assert.equal(f.calls.length, 0);
+});
+
+test('invalid truthy permission responses never grant writes', async () => {
+  for (const answer of ['true', { allowed: true }, 1, null, undefined]) {
+    const f = fixture(); f.sdk.bitable.base.getPermission = async () => answer;
+    const data = await f.repo.connect();
+    assert.equal(data.canAdd, false); assert.equal(data.writePermissionUnknown, true);
+    await assert.rejects(f.repo.save(visit), /LC-PERMISSION/); assert.equal(f.calls.length, 0);
+  }
+});
+
+test('denied add permission does not incorrectly prohibit an allowed per-record edit', async () => {
+  const f = fixture();
+  f.plan.records.push({ recordId: 'existing', fields: { date: visit.timestamp, link: { recordIds: visit.customerIds } } });
+  f.sdk.bitable.base.getPermission = async ({ type }) => type !== OperationType.Addable;
+  const data = await f.repo.connect();
+  assert.equal(data.writePermissionUnknown, false); assert.equal(data.canAdd, false);
+  await assert.rejects(f.repo.save(visit), /权限/);
+  const saved = await f.repo.save({ ...visit, timestamp: visit.timestamp + 60000 }, data.plans[0]);
+  await f.repo.remove(saved);
+  assert.deepEqual(f.calls.map(([action]) => action), ['edit', 'delete']);
+});
+
+test('permission failure during pre-save refresh stops the pending write', async () => {
+  const f = fixture(); await f.repo.connect();
+  let count = 0;
+  f.sdk.bitable.base.getPermission = async () => { if (++count > 1) throw new Error('connection lost'); return true; };
+  await assert.rejects(f.repo.save(visit), /LC-PERMISSION/);
+  assert.equal(f.calls.length, 0);
+});
+
+test('read failures are not converted into empty successful calendars and can reconnect', async () => {
+  for (const [table, code] of [['people', 'LC-CONTACTS'], ['plan', 'LC-PLANS']]) {
+    const f = fixture(), read = f[table].getRecordsByPage;
+    f[table].getRecordsByPage = async () => { throw new Error('forbidden private record'); };
+    await assert.rejects(f.repo.connect(), { code });
+    assert.equal(f.repo.ready, false); assert.equal(f.repo.writePermissionUnknown, true);
+    await assert.rejects(f.repo.save(visit), /LC-PERMISSION/);
+    f[table].getRecordsByPage = read;
+    assert.equal((await f.repo.connect()).canAdd, true); assert.equal(f.calls.length, 0);
+  }
+});
+
 test('discover existing tables once, save identifiers, reopen even after field names change', async () => {
   const f = fixture();
   const loaded = await f.repo.connect();

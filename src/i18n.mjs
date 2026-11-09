@@ -21,6 +21,8 @@ const entries = [
   ['正在连接飞书…','Connecting to Feishu…','Feishu に接続中…'],
   ['已连接现有拜访计划 · 上海时间','Connected · Shanghai time','接続済み・上海時間'],['已同步拜访计划 · 上海时间','Synchronized · Shanghai time','同期済み・上海時間'],
   ['已连接；当前账号仅可查看，不能新增计划。','Connected. This account is read-only.','接続済み。このアカウントは閲覧のみ可能です。'],
+  ['已连接；当前账号不能新增计划，已有计划的修改和删除按原权限执行。','Connected. Adding is unavailable; editing and deleting existing visits still require their own permissions.','接続済み。追加は不可です。既存予定の編集・削除には各権限が必要です。'],
+  ['写入权限暂时无法确认；日历可查看，新增、修改和删除已暂停。请点刷新重试（LC-PERMISSION）。','Write permissions could not be confirmed. Calendar viewing is available; all writes are paused. Refresh to retry (LC-PERMISSION).','書き込み権限を確認できません。閲覧は可能ですが追加・編集・削除は停止中です。更新して再試行してください（LC-PERMISSION）。'],
   ['已保存，已返回拜访日历。','Saved. Back to calendar.','保存しました。カレンダーに戻りました。'],['拜访计划已删除。','Visit deleted.','訪問予定を削除しました。'],
   ['确认删除这条拜访计划？客户信息不会删除。','Delete this visit? Contacts will not be deleted.','この予定を削除しますか？顧客情報は削除されません。'],
   ['没有匹配客户，请换用客户机构、分类、部门或姓名；不会自动新建客户。','No match. Search by organization, hierarchy, department or name. No contact is created automatically.','該当なし。組織・分類・部署・氏名を変えて検索してください。顧客は自動作成されません。'],
@@ -38,6 +40,10 @@ const entries = [
 export function translateUI(text, language) {
   const col = language.startsWith('ja') ? 2 : language.startsWith('en') ? 1 : 0;
   if (!col) return text;
+  const version = /^(.*)( · v\d+\.\d+\.\d+)$/.exec(text);
+  if (version) return translateUI(version[1], language) + version[2];
+  const phase = /^(尚未连接成功。|刷新失败，当前显示可能不是最新。).*（(LC-[A-Z]+)）。$/.exec(text);
+  if (phase) return col === 1 ? `Connection/read failed; displayed data may be stale. Writes are disabled. Refresh to retry (${phase[2]}).` : `接続・読み込みに失敗しました。表示が古い可能性があります。書き込みは停止中です。更新して再試行してください（${phase[2]}）。`;
   const exact = entries.find(row => row[0] === text.trim());
   if (exact) return text.replace(text.trim(), exact[col]);
   const day = /^周([一二三四五六日]) (\d{2}\/\d{2})( · 今天)?$/.exec(text);

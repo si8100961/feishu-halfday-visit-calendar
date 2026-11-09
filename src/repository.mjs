@@ -1,5 +1,6 @@
 import { plainText, linkedIds, sameVisit, dateKey, timestampOf, planSchedule } from './domain.mjs';
 import { savedSource, dashboardConfig, oneNamed } from './config.mjs';
+import { readStage, PERMISSION_WARNING } from './availability.mjs';
 
 export const EXTRA_FIELDS = {
   pendingDateField: ['拜访日期（时间待定）', 5],
@@ -35,25 +36,26 @@ export async function readDisplayValues(field) {
 }
 
 export class VisitRepository {
-  constructor(sdk) { Object.assign(this, sdk); }
+  constructor(sdk) { Object.assign(this, sdk); this.writePermissionUnknown = true; this.loadSequence = 0; }
   async connect() {
     this.ready = false;
+    this.writePermissionUnknown = true;
     const { bitable, FieldType } = this;
     // Feishu rejects getConfig while creating a component: nothing is saved yet.
-    const hostConfig = bitable.dashboard.state === this.DashboardState.Create ? null : await bitable.dashboard.getConfig();
+    const hostConfig = bitable.dashboard.state === this.DashboardState.Create ? null : await readStage('LC-CONFIG', () => bitable.dashboard.getConfig());
     const saved = savedSource(hostConfig);
     if (!saved && !this.isConfig()) throw new Error('此组件尚未保存数据源，请在仪表盘中配置后使用。');
-    const planTableId = saved?.planTableId || oneNamed(await bitable.base.getTableMetaList(), '拜访计划').id;
-    this.plan = await bitable.base.getTableById(planTableId);
-    const planFields = await this.plan.getFieldMetaList();
+    const planTableId = saved?.planTableId || oneNamed(await readStage('LC-SOURCE', () => bitable.base.getTableMetaList()), '拜访计划').id;
+    this.plan = await readStage('LC-SOURCE', () => bitable.base.getTableById(planTableId));
+    const planFields = await readStage('LC-SOURCE', () => this.plan.getFieldMetaList());
     const date = saved?.dateField ? planFields.find(f => f.id === saved.dateField) : oneNamed(planFields, '拜访时间');
     const link = saved?.linkField ? planFields.find(f => f.id === saved.linkField) : oneNamed(planFields, '约见客户');
     const contactTableId = saved?.contactTableId || link?.property?.tableId;
     if (date?.type !== FieldType.DateTime || ![FieldType.DuplexLink, FieldType.SingleLink].includes(link?.type) || !contactTableId || link.property?.tableId !== contactTableId || planTableId === contactTableId) {
       throw new Error('拜访时间或约见客户字段配置与现有系统不符，已停止写入。');
     }
-    this.contact = await bitable.base.getTableById(contactTableId);
-    const contactFields = await this.contact.getFieldMetaList();
+    this.contact = await readStage('LC-SOURCE', () => bitable.base.getTableById(contactTableId));
+    const contactFields = await readStage('LC-SOURCE', () => this.contact.getFieldMetaList());
     const fieldNamed = (key, names, optional = false) => {
       const aliases = Array.isArray(names) ? names : [names];
       if (saved?.[key]) {
@@ -82,7 +84,7 @@ export class VisitRepository {
     this.associationDisplay = null;
     const association = contactFields.find(f => f.id === this.source.associationField);
     if (association && [FieldType.DuplexLink, FieldType.SingleLink].includes(association.type)) {
-      this.associationDisplay = await this.contact.getFieldById(association.id);
+      this.associationDisplay = await readStage('LC-SOURCE', () => this.contact.getFieldById(association.id));
     }
     if (contactFields.find(f => f.id === this.source.testField)?.type !== FieldType.Checkbox) throw new Error('测试记录隔离字段类型已变化，停止加载候选。');
     Object.assign(this, this.source);
@@ -97,9 +99,19 @@ export class VisitRepository {
     this.ready = true;
     try { return await this.load(); } catch (error) { this.ready = false; throw error; }
   }
-  permission(type, recordId) {
+  async permission(type, recordId) {
     if (!this.ready) throw new Error('数据源尚未验证，禁止写入。');
-    return this.bitable.base.getPermission({ entity: this.PermissionEntity.Record, type, param: { tableId: this.planTableId, ...(recordId ? { recordId } : {}) } });
+    try {
+      const allowed = await readStage('LC-PERMISSION', () => this.bitable.base.getPermission({ entity: this.PermissionEntity.Record, type, param: { tableId: this.planTableId, ...(recordId ? { recordId } : {}) } }), 4000);
+      if (typeof allowed !== 'boolean') throw new Error('Permission result is not boolean');
+      return allowed;
+    } catch (cause) {
+      this.writePermissionUnknown = true;
+      const error = new Error(PERMISSION_WARNING); error.code = 'LC-PERMISSION'; error.cause = cause; throw error;
+    }
+  }
+  assertWritePermissionKnown() {
+    if (this.writePermissionUnknown) throw new Error(PERMISSION_WARNING);
   }
   parsePlan(row) {
     const plan = { id: row.recordId, timestamp: row.fields[this.dateField], customerIds: linkedIds(row.fields[this.linkField]) };
@@ -117,22 +129,34 @@ export class VisitRepository {
   }
   async load() {
     if (!this.ready) throw new Error('数据源尚未验证，禁止读取。');
-    const [people, rows, canAdd, displayValues] = await Promise.all([readAll(this.contact), readAll(this.plan), this.permission(this.OperationType.Addable),
-      this.associationDisplay ? readDisplayValues(this.associationDisplay).catch(() => new Map()) : new Map()]);
+    const sequence = ++this.loadSequence;
+    let loaded;
+    try {
+      loaded = await Promise.all([
+        readStage('LC-CONTACTS', () => readAll(this.contact)),
+        readStage('LC-PLANS', () => readAll(this.plan)),
+        this.permission(this.OperationType.Addable).then(canAdd => ({ canAdd, known: true }), () => ({ canAdd: false, known: false })),
+        this.associationDisplay ? readStage('LC-LABELS', () => readDisplayValues(this.associationDisplay), 4000).catch(() => new Map()) : new Map()
+      ]);
+    } catch (error) { this.writePermissionUnknown = true; throw error; }
+    const [people, rows, permission, displayValues] = loaded;
+    if (sequence === this.loadSequence) this.writePermissionUnknown = !permission.known;
     this.contacts = people.filter(r => r.fields[this.testField] !== true && plainText(r.fields[this.nameField]).trim()).map(r => ({
       id: r.recordId, name: plainText(r.fields[this.nameField]), organization: plainText(r.fields[this.source.organizationField]), level1: plainText(r.fields[this.source.level1Field]), level2: plainText(r.fields[this.branchField]), branch: plainText(r.fields[this.branchField]), department: plainText(r.fields[this.departmentField]), keywords: plainText(r.fields[this.keywordField]),
       shortHierarchy: (linkedIds(r.fields[this.source.associationField]).length ? displayValues.get(r.recordId) : '') || plainText(r.fields[this.source.displayField]).trim()
     }));
-    return { contacts: this.contacts, plans: rows.map(row => this.parsePlan(row)), canAdd,
+    return { contacts: this.contacts, plans: rows.map(row => this.parsePlan(row)), canAdd: permission.canAdd, writePermissionUnknown: !permission.known,
       supportsFlexible: Object.keys(EXTRA_FIELDS).every(key => this.extra[key]) };
   }
   async save(input, original) {
+    this.assertWritePermissionKnown();
     if (!input || !planSchedule(input) || !Array.isArray(input.customerIds) || (!input.customerIds.length && !input.temporaryContact?.trim())) throw new Error('请先填写有效日期、时段和约见对象。');
     if (input.temporaryContact != null && (typeof input.temporaryContact !== 'string' || input.temporaryContact.length > 200)) throw new Error('原有约见对象格式不正确。');
     if (input.temporaryContact && (!original || input.temporaryContact !== original.temporaryContact)) throw new Error('仅保留原有约见对象文字；新增计划请使用原有客户选择。');
     if (!await this.permission(original ? this.OperationType.Editable : this.OperationType.Addable, original?.id)) throw new Error('当前飞书账号没有保存此拜访计划的权限。');
     // Refresh allowed people immediately before writing; never link by a name string.
     const fresh = await this.load();
+    this.assertWritePermissionKnown();
     if (!Number.isFinite(input.timestamp) && !fresh.supportsFlexible) throw new Error('尚未配置模糊时间扩展字段，未保存；请由管理员先配置。');
     if (input.customerIds.some(id => !fresh.contacts.some(c => c.id === id))) throw new Error('客户资料已变化，请刷新后重新选择。');
     if (original) {
@@ -171,7 +195,9 @@ export class VisitRepository {
     }
   }
   async remove(original) {
+    this.assertWritePermissionKnown();
     if (!await this.permission(this.OperationType.Deletable, original.id)) throw new Error('当前账号没有删除权限。');
+    this.assertWritePermissionKnown();
     const current = this.parsePlan({ recordId: original.id, ...(await this.plan.getRecordById(original.id, true)) });
     if (!sameVisit(current, original)) throw new Error('计划已被修改，请刷新后再删除。');
     try {
